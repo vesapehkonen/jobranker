@@ -1,0 +1,724 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Job Ranking Report</title>
+    <link rel="icon" href="/static/favicon.ico">
+    <style>
+        :root {
+            --bg: #f6f7f9;
+            --card: #ffffff;
+            --border: #e5e7eb;
+            --text: #111827;
+            --muted: #6b7280;
+            --blue: #2563eb;
+            --blue-soft: #dbeafe;
+            --green-soft: #dcfce7;
+            --yellow-soft: #fef3c7;
+            --red-soft: #fee2e2;
+            --purple-soft: #ede9fe;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 24px;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            margin: 0 0 6px 0;
+            font-size: 26px;
+        }
+
+        .summary {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 16px 0;
+        }
+
+        button, select {
+            cursor: pointer;
+            border: 1px solid #d1d5db;
+            background: white;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 13px;
+        }
+
+        button:hover, select:hover { background: #f3f4f6; }
+
+        .filter-button.active {
+            background: var(--blue);
+            color: white;
+            border-color: var(--blue);
+        }
+
+        .table-wrap {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        th, td {
+            border-bottom: 1px solid var(--border);
+            padding: 10px;
+            vertical-align: top;
+            font-size: 14px;
+            overflow-wrap: break-word;
+        }
+
+        th {
+            background: #f3f4f6;
+            text-align: left;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #4b5563;
+        }
+
+        th:nth-child(1), td:nth-child(1) { width: 72px; }
+        th:nth-child(2), td:nth-child(2) { width: 120px; }
+        th:nth-child(3), td:nth-child(3) { width: 140px; }
+        th:nth-child(4), td:nth-child(4) { width: auto; }
+        th:nth-child(5), td:nth-child(5) { width: 150px; }
+        th:nth-child(6), td:nth-child(6) { width: 150px; }
+        th:nth-child(7), td:nth-child(7) { width: 120px; }
+        th:nth-child(8), td:nth-child(8) { width: 190px; }
+
+        .score {
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .recommendation {
+            margin-top: 5px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .job-main {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .company { font-weight: 700; }
+
+        .job-title {
+            color: #0645ad;
+            line-height: 1.3;
+        }
+
+        .job-summary {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        
+        .muted {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .status, .resume-pill, .processing {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .resume-pill {
+            background: var(--purple-soft);
+            color: #5b21b6;
+        }
+
+        .status-new { background: var(--blue-soft); color: #1e40af; }
+        .status-interested { background: var(--green-soft); color: #166534; }
+        .status-applied { background: var(--yellow-soft); color: #92400e; }
+
+        .status-skipped,
+        .status-rejected,
+        .status-withdrawn,
+        .status-archived {
+            background: var(--red-soft);
+            color: #991b1b;
+        }
+
+        .status-recruiter_contact,
+        .status-interview,
+        .status-final_round,
+        .status-offer {
+            background: #ccfbf1;
+            color: #115e59;
+        }
+
+        .processing-failed { background: var(--red-soft); color: #991b1b; }
+        .processing-active { background: var(--blue-soft); color: #1e40af; }
+        .processing-done { background: var(--green-soft); color: #166534; }
+        .processing-pending { background: #f3f4f6; color: #374151; }
+
+        .status-cell {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .details-row { display: none; }
+
+        .details-row td {
+            background: #fbfbfc;
+            padding: 14px 16px 20px 16px;
+        }
+
+        .details-card {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: white;
+            padding: 16px;
+        }
+
+        .details-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+        }
+
+        .details-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .details-subtitle {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .profile-score-list {
+            margin: 0;
+            padding-left: 18px;
+            font-size: 13px;
+        }
+
+        .details-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .detail-section {
+            background: #f9fafb;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+        }
+
+        .detail-section.full { grid-column: 1 / -1; }
+
+        .detail-section h3 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+        }
+
+        .detail-section ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .detail-section li {
+            margin-bottom: 6px;
+            line-height: 1.4;
+        }
+
+        .detail-section p {
+            margin: 0;
+            line-height: 1.45;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 130px 1fr;
+            gap: 6px 10px;
+            font-size: 13px;
+        }
+
+        .info-label {
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        .error-box {
+            white-space: pre-wrap;
+            background: #fff1f2;
+            color: #991b1b;
+            border: 1px solid #fecdd3;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 12px;
+            max-height: 220px;
+            overflow: auto;
+        }
+
+        @media (max-width: 1100px) {
+            body { padding: 12px; }
+            table { min-width: 1100px; }
+            .table-wrap { overflow-x: auto; }
+            .details-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-header">
+        <div>
+            <h1>Job Ranking Report</h1>
+            <div class="summary">Total jobs: {{ total_jobs }}</div>
+        </div>
+    </div>
+
+    <div class="filters">
+        <button class="filter-button" data-filter="active" onclick="filterStatus('active')">Active</button>
+        <button class="filter-button" data-filter="new" onclick="filterStatus('new')">New</button>
+        <button class="filter-button" data-filter="interested" onclick="filterStatus('interested')">Interested</button>
+        <button class="filter-button" data-filter="applied" onclick="filterStatus('applied')">Applied</button>
+        <button class="filter-button" data-filter="recruiter_contact" onclick="filterStatus('recruiter_contact')">Recruiter</button>
+        <button class="filter-button" data-filter="interview" onclick="filterStatus('interview')">Interview</button>
+        <button class="filter-button" data-filter="skipped" onclick="filterStatus('skipped')">Skipped</button>
+        <button class="filter-button" data-filter="rejected" onclick="filterStatus('rejected')">Rejected</button>
+        <button class="filter-button" data-filter="archived" onclick="filterStatus('archived')">Archived</button>
+        <button class="filter-button" data-filter="all" onclick="filterStatus('all')">All</button>
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Score</th>
+                    <th>Resume</th>
+                    <th>Status</th>
+                    <th>Job</th>
+                    <th>Main Skill</th>
+                    <th>Location</th>
+                    <th>Processing</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs %}
+                <tr class="job-row" data-status="{{ job.status }}">
+                    <td>
+                        <div class="score">{{ job.score or "—" }}</div>
+                        <div class="recommendation">{{ job.recommendation or "" }}</div>
+                    </td>
+
+                    <td>
+                        {% if job.recommended_profile %}
+                            <span class="resume-pill">{{ job.recommended_profile }}</span>
+                        {% else %}
+                            <span class="muted">—</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        <div class="status-cell">
+                            <span class="status status-{{ job.status }}">{{ job.status }}</span>
+                            {% if job.status_updated_at_raw %}
+                                <span class="local-time" data-time="{{ job.status_updated_at_raw }}"></span>
+                            {% endif %}
+                        </div>
+                    </td>
+
+                    <td>
+                        <div class="job-main">
+                            <div class="company">{{ job.company or "Unknown company" }}</div>
+                            <a class="job-title" href="{{ job.url or '#' }}" target="_blank">
+                                {{ job.title or "Untitled job" }}
+                            </a>
+                            {% if job.short_summary or job.summary %}
+                                 <div class="job-summary">
+                                     {{ job.short_summary or job.summary }}
+                                 </div>
+                            {% endif %}
+                            {% if job.job_source or job.external_job_id %}
+                                <div class="muted">
+                                    {{ job.job_source or "" }}
+                                    {% if job.external_job_id %} · Job ID: {{ job.external_job_id }}{% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </td>
+
+                    <td>{{ job.main_skill or "" }}</td>
+                    <td>{{ job.location or "" }}</td>
+
+                    <td>
+                        {% if job.processing_status == "failed" %}
+                            <span class="processing processing-failed">failed</span>
+                        {% elif job.processing_status == "processing" %}
+                            <span class="processing processing-active">
+                                {{ job.processing_phase or "processing" }}
+                            </span>
+                        {% elif job.processing_status == "done" %}
+                            <span class="processing processing-done">done</span>
+                        {% elif job.processing_status %}
+                            <span class="processing processing-pending">{{ job.processing_status }}</span>
+                        {% else %}
+                            <span class="muted">—</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        <div class="actions">
+                            <button onclick="toggleDetails('details-{{ job.job_uid }}')">Details</button>
+
+                            {% if job.processing_status == "failed" %}
+                                <button onclick="retryJob('{{ job.job_uid }}')">Retry</button>
+                            {% endif %}
+
+                            <select onchange="changeStatus('{{ job.job_uid }}', this)">
+                                <option value="new" {% if job.status == "new" %}selected{% endif %}>New</option>
+                                <option value="interested" {% if job.status == "interested" %}selected{% endif %}>Interested</option>
+                                <option value="applied" {% if job.status == "applied" %}selected{% endif %}>Applied</option>
+                                <option value="recruiter_contact" {% if job.status == "recruiter_contact" %}selected{% endif %}>Recruiter</option>
+                                <option value="interview" {% if job.status == "interview" %}selected{% endif %}>Interview</option>
+                                <option value="final_round" {% if job.status == "final_round" %}selected{% endif %}>Final round</option>
+                                <option value="offer" {% if job.status == "offer" %}selected{% endif %}>Offer</option>
+                                <option value="skipped" {% if job.status == "skipped" %}selected{% endif %}>Skipped</option>
+                                <option value="rejected" {% if job.status == "rejected" %}selected{% endif %}>Rejected</option>
+                                <option value="withdrawn" {% if job.status == "withdrawn" %}selected{% endif %}>Withdrawn</option>
+                                <option value="archived" {% if job.status == "archived" %}selected{% endif %}>Archived</option>
+                            </select>
+                        </div>
+                    </td>
+                </tr>
+
+                <tr id="details-{{ job.job_uid }}" class="details-row" data-status="{{ job.status }}">
+                    <td colspan="8">
+                        <div class="details-card">
+                            <div class="details-top">
+                                <div>
+                                    <div class="details-title">{{ job.company or "Unknown company" }} — {{ job.title or "Untitled job" }}</div>
+                                    <div class="details-subtitle">
+                                        Internal UID: {{ job.job_uid }}
+                                        {% if job.external_job_id %} · Job ID: {{ job.external_job_id }}{% endif %}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="muted">Resume match scores</div>
+                                    {% if job.profile_scores %}
+                                        <ul class="profile-score-list">
+                                            {% for profile_name, score in job.profile_scores.items() %}
+                                                <li><strong>{{ profile_name }}</strong>: {{ score }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        <div class="muted">No profile scores</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <div class="details-grid">
+                                {% if job.processing_error %}
+                                <section class="detail-section full">
+                                    <h3>Processing Error</h3>
+                                    <pre class="error-box">{{ job.processing_error }}</pre>
+                                </section>
+                                {% endif %}
+
+                                <section class="detail-section">
+                                    <h3>Matched strengths</h3>
+                                    {{ job.matched_strengths_html | safe }}
+                                </section>
+
+                                <section class="detail-section">
+                                    <h3>Weak areas</h3>
+                                    {{ job.weak_areas_html | safe }}
+                                </section>
+
+                                <section class="detail-section">
+                                    <h3>Interview risk</h3>
+                                    {{ job.interview_risk_html | safe }}
+                                </section>
+
+                                <section class="detail-section">
+                                    <h3>Requirements</h3>
+                                    {{ job.requirements_html | safe }}
+                                </section>
+
+                                <section class="detail-section">
+                                    <h3>Preferred requirements</h3>
+                                    {{ job.preferred_requirements_html | safe }}
+                                </section>
+
+                                <section class="detail-section">
+                                    <h3>Technologies</h3>
+                                    {{ job.technologies_html | safe }}
+                                </section>
+
+                                <section class="detail-section">
+                                    <h3>Benefits</h3>
+                                    {{ job.benefits_html | safe }}
+                                </section>
+
+                                <section class="detail-section">
+                                    <h3>Job info</h3>
+                                    <div class="info-grid">
+                                        <div class="info-label">Source</div><div>{{ job.job_source or "" }}</div>
+                                        <div class="info-label">Job ID</div><div>{{ job.external_job_id or "" }}</div>
+                                        <div class="info-label">Workplace</div><div>{{ job.workplace_type or "" }}</div>
+                                        <div class="info-label">Employment</div><div>{{ job.employment_type or "" }}</div>
+                                        <div class="info-label">Education</div><div>{{ job.education_requirement or "" }}</div>
+                                        <div class="info-label">Salary</div><div>{{ job.salary_range or "" }}</div>
+                                        <div class="info-label">Created</div><div><span class="local-time" data-time="{{ job.created_at_raw }}"></span></div>
+                                    </div>
+                                </section>
+
+                                <section class="detail-section full">
+                                    <h3>Reasoning</h3>
+                                    <p>{{ job.reasoning or "No ranking reasoning available." }}</p>
+                                </section>
+
+                                <section class="detail-section full">
+                                    <h3>Summary</h3>
+                                    <p>{{ job.summary or job.short_summary or "No summary available." }}</p>
+                                </section>
+
+                                {% if job.description %}
+                                <section class="detail-section full">
+                                    <h3>Description</h3>
+                                    <p>{{ job.description }}</p>
+                                </section>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+<script>
+const API_TOKEN = {{ api_token | tojson }};
+
+const reportLoadedMtime = Number("{{ report_mtime or 0 }}");
+let reportCheckTimer = null;
+
+async function changeStatus(jobUid, selectElement) {
+    const status = selectElement.value;
+
+    const response = await fetch(`/jobs/${jobUid}/status`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${API_TOKEN}`,
+        },
+        body: JSON.stringify({ status: status }),
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        alert(`Failed to update job status: HTTP ${response.status}\n${text}`);
+        return;
+    }
+
+    window.location.reload();
+}
+    
+async function retryJob(jobUid) {
+    const response = await fetch(`/jobs/${jobUid}/retry`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${API_TOKEN}`,
+        },
+    });
+
+    if (!response.ok) {
+        alert(`Failed to retry job: HTTP ${response.status}\n${text}`);
+        return;
+    }
+
+    window.location.reload();
+}
+
+function toggleDetails(id) {
+    const row = document.getElementById(id);
+
+    if (!row) {
+        return;
+    }
+
+    row.style.display =
+        row.style.display === "table-row"
+            ? "none"
+            : "table-row";
+}
+
+function filterStatus(mode) {
+    localStorage.setItem("jobReportFilter", mode);
+
+    const rows = document.querySelectorAll("tr[data-status]");
+
+    rows.forEach(row => {
+        const status = row.dataset.status;
+        const isDetails = row.classList.contains("details-row");
+
+        let visible = false;
+
+        if (mode === "all") {
+            visible = true;
+        } else if (mode === "active") {
+            visible = status === "new" || status === "interested";
+        } else {
+            visible = status === mode;
+        }
+
+        if (!visible) {
+            row.style.display = "none";
+        } else {
+            row.style.display = isDetails ? "none" : "";
+        }
+    });
+
+    document.querySelectorAll(".filter-button").forEach(btn => {
+        btn.classList.remove("active");
+
+        if (btn.dataset.filter === mode) {
+            btn.classList.add("active");
+        }
+    });
+}
+
+async function checkReportUpdate() {
+    if (document.hidden) {
+        return;
+    }
+
+  try {
+        const response = await fetch("/report/status", {
+            headers: {
+                "Content-Type": "application/json",
+            },
+        });
+
+        if (!response.ok) {
+            return;
+        }
+
+        const data = await response.json();
+
+        if (data.exists && Number(data.mtime) > reportLoadedMtime) {
+            window.location.reload();
+        }
+    } catch (error) {
+        console.error("Report status check failed", error);
+    }
+}
+
+function startReportChecking() {
+    if (reportCheckTimer) {
+        return;
+    }
+
+    reportCheckTimer = setInterval(checkReportUpdate, 5000);
+}
+
+function stopReportChecking() {
+    if (!reportCheckTimer) {
+        return;
+    }
+
+    clearInterval(reportCheckTimer);
+    reportCheckTimer = null;
+}
+
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+        stopReportChecking();
+    } else {
+        checkReportUpdate();
+        startReportChecking();
+    }
+});
+
+const savedFilter = localStorage.getItem("jobReportFilter") || "active";
+filterStatus(savedFilter);
+
+if (!document.hidden) {
+    startReportChecking();
+}
+
+function formatLocalTimes() {
+    document.querySelectorAll(".local-time").forEach(element => {
+        const raw = element.dataset.time;
+
+        if (!raw) {
+            element.textContent = "";
+            return;
+        }
+
+        const date = new Date(raw);
+
+        if (Number.isNaN(date.getTime())) {
+            element.textContent = raw;
+            return;
+        }
+
+        element.textContent = date.toLocaleString(undefined, {
+            month: "short",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+    });
+}
+
+formatLocalTimes();
+    
+</script>
+</body>
+</html>
