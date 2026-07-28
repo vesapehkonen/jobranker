@@ -1,36 +1,16 @@
 import json
-from pathlib import Path
 import sys
-
-if len(sys.argv) < 3:
-    print("Usage: sys.argv[0] input.json outdir")
-    exit(1)
-    
-INPUT_FILE = Path(sys.argv[1])
-OUTPUT_DIR = Path(sys.argv[2])
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT_FILE = OUTPUT_DIR / INPUT_FILE.name.replace(".raw.json", ".cleaned.json")
+from pathlib import Path
+from typing import Any
 
 START_MARKERS = [
-    "About the job",
-    "Job description",
-    "Job Description",
-    "About this job",
-    "Description",
-    "Role overview",
-    "The role",
+    "About the job", "Job description", "Job Description", "About this job",
+    "Description", "Role overview", "The role",
 ]
-
 END_MARKERS = [
-    "Set alert for similar jobs",
-    "Similar jobs",
-    "More jobs",
-    "About the company",
-    "Recommended jobs",
-    "People also viewed",
-    "Looking for talent?",
+    "Set alert for similar jobs", "Similar jobs", "More jobs", "About the company",
+    "Recommended jobs", "People also viewed", "Looking for talent?",
 ]
-
 HEADER_LOOKBACK_LINES = 40
 
 
@@ -39,34 +19,20 @@ def clean_lines(text: str) -> list[str]:
 
 
 def find_first_marker(text: str, markers: list[str]) -> tuple[int, str | None]:
-    best_index = -1
-    best_marker = None
-
-    for marker in markers:
-        index = text.find(marker)
-        if index != -1 and (best_index == -1 or index < best_index):
-            best_index = index
-            best_marker = marker
-
-    return best_index, best_marker
+    matches = [(text.find(marker), marker) for marker in markers if text.find(marker) != -1]
+    return min(matches, default=(-1, None), key=lambda match: match[0])
 
 
-def extract_job(text: str) -> dict:
+def extract_description(text: str) -> dict[str, Any]:
     start_index, start_marker = find_first_marker(text, START_MARKERS)
-
     if start_index == -1:
         start_index = 0
-
     before_description = text[:start_index]
     description_part = text[start_index:]
-
     header_lines = clean_lines(before_description)[-HEADER_LOOKBACK_LINES:]
-
     end_index, end_marker = find_first_marker(description_part, END_MARKERS)
-
     if end_index != -1:
         description_part = description_part[:end_index]
-
     return {
         "start_marker": start_marker,
         "end_marker": end_marker,
@@ -75,26 +41,28 @@ def extract_job(text: str) -> dict:
     }
 
 
-def main() -> None:
-    data = json.loads(INPUT_FILE.read_text(encoding="utf-8"))
-
-    text = data.get("text") or data.get("raw_text") or ""
-
+def parse_job(raw: dict[str, Any]) -> dict[str, Any]:
+    text = raw.get("text") or raw.get("raw_text") or ""
     if not text:
-        raise ValueError("No text or raw_text found in input file")
-
-    result = {
-        "url": data.get("url"),
-        "page_title": data.get("title"),
-        **extract_job(text),
+        raise ValueError("No text or raw_text found in input")
+    return {
+        "url": raw.get("url"),
+        "page_title": raw.get("title"),
+        **extract_description(text),
     }
 
-    OUTPUT_FILE.write_text(
-        json.dumps(result, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
 
-    print(f"Saved {OUTPUT_FILE}")
+def main() -> None:
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} input.json outdir")
+        raise SystemExit(1)
+    input_file = Path(sys.argv[1])
+    output_dir = Path(sys.argv[2])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / input_file.name.replace(".raw.json", ".cleaned.json")
+    result = parse_job(json.loads(input_file.read_text(encoding="utf-8")))
+    output_file.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"Saved {output_file}")
 
 
 if __name__ == "__main__":

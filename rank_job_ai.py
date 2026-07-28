@@ -4,8 +4,8 @@ from pathlib import Path
 from openai import OpenAI
 
 from config import OPENAI_MODEL
+from database import load_enabled_profiles
 
-PROFILE_DIR = Path("data/profile")
 
 WEIGHTS = {
     "technical_skill_fit": 0.35,
@@ -92,22 +92,6 @@ def recommendation_from_score(score: int) -> str:
     return "no"
 
 
-def load_profiles(profile_dir: Path) -> dict[str, dict]:
-    profiles = {}
-
-    if not profile_dir.exists():
-        raise FileNotFoundError(f"Profile directory not found: {profile_dir}")
-
-    for profile_file in sorted(profile_dir.glob("*/profile.json")):
-        profile_name = profile_file.parent.name
-        profiles[profile_name] = json.loads(profile_file.read_text(encoding="utf-8"))
-
-    if not profiles:
-        raise FileNotFoundError(
-            f"No profiles found in {profile_dir}. Expected files like data/profile/backend/profile.json"
-        )
-
-    return profiles
 
 
 def rank_profile(
@@ -162,67 +146,32 @@ def rank_profile(
     return ranking
 
 
-def main() -> None:
-    if len(sys.argv) == 3:
-        profile_dir = PROFILE_DIR
-        job_file = Path(sys.argv[1])
-        output_dir = Path(sys.argv[2])
-    elif len(sys.argv) == 4:
-        profile_dir = Path(sys.argv[1])
-        job_file = Path(sys.argv[2])
-        output_dir = Path(sys.argv[3])
-    else:
-        print("Usage:")
-        print("  python rank_job_ai.py data/structured/job.structured.json data/ranked")
-        print("  python rank_job_ai.py data/profile data/structured/job.structured.json data/ranked")
-        sys.exit(1)
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = build_output_path(job_file, output_dir)
-
-    profiles = load_profiles(profile_dir)
-    job = json.loads(job_file.read_text(encoding="utf-8"))
-
-    client = OpenAI()
-
-    profile_rankings = {}
-
-    for profile_name, resume_profile in profiles.items():
-        print(f"Ranking {job_file.name} against profile: {profile_name}")
-        profile_rankings[profile_name] = rank_profile(
-            client=client,
-            profile_name=profile_name,
-            resume_profile=resume_profile,
-            job=job,
-        )
-
+def rank_job(client: OpenAI, job: dict, profiles: dict[str, dict]) -> dict:
+    if not profiles:
+        raise ValueError("At least one resume profile is required")
+    profile_rankings = {
+        profile_name: rank_profile(client, profile_name, resume_profile, job)
+        for profile_name, resume_profile in profiles.items()
+    }
     recommended_profile = max(
         profile_rankings,
         key=lambda name: profile_rankings[name]["overall_fit_score"],
     )
-
     selected_ranking = profile_rankings[recommended_profile]
-
     profile_scores = {
-        profile_name: ranking["overall_fit_score"]
-        for profile_name, ranking in sorted(
+        name: ranking["overall_fit_score"]
+        for name, ranking in sorted(
             profile_rankings.items(),
             key=lambda item: item[1]["overall_fit_score"],
             reverse=True,
         )
     }
-
-    result = {
+    return {
         "job": {
-            "job_id": job.get("job_id"),
-            "job_source": job.get("job_source"),
-            "job_url": job.get("job_url"),
-            "company": job.get("company"),
-            "title": job.get("title"),
-            "location": job.get("location"),
-            "workplace_type": job.get("workplace_type"),
-            "employment_type": job.get("employment_type"),
-            "main_skill": job.get("main_skill"),
+            key: job.get(key) for key in (
+                "job_id", "job_source", "job_url", "company", "title",
+                "location", "workplace_type", "employment_type", "main_skill",
+            )
         },
         "recommended_profile": recommended_profile,
         "profile_scores": profile_scores,
@@ -232,13 +181,26 @@ def main() -> None:
         "ranking": selected_ranking,
     }
 
+
+def main() -> None:
+    if len(sys.argv) != 3:
+        print("Usage: python rank_job_ai.py <structured-job.json> <output-dir>")
+        raise SystemExit(1)
+
+    job_file = Path(sys.argv[1])
+    output_dir = Path(sys.argv[2])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = build_output_path(job_file, output_dir)
+
+    profiles = load_enabled_profiles()
+    job = json.loads(job_file.read_text(encoding="utf-8"))
+    result = rank_job(OpenAI(), job, profiles)
     output_file.write_text(
         json.dumps(result, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-
-    print(f"Recommended profile: {recommended_profile}")
-    print(f"Profile scores: {profile_scores}")
+    print(f"Recommended profile: {result['recommended_profile']}")
+    print(f"Profile scores: {result['profile_scores']}")
     print(f"Saved {output_file}")
 
 

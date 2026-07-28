@@ -4,6 +4,7 @@ from pathlib import Path
 from openai import OpenAI
 
 from config import OPENAI_MODEL
+from database import save_profile
 
 SCHEMA = {
     "type": "object",
@@ -81,28 +82,7 @@ SCHEMA = {
     ]
 }
 
-def main() -> None:
-    if len(sys.argv) != 3:
-        print("Usage: python extract_resume_ai.py <profile-name> <resume-file>")
-        sys.exit(1)
-
-    profile_name = sys.argv[1]
-    input_file = Path(sys.argv[2])
-
-    if not input_file.exists():
-        print(f"Resume file not found: {input_file}")
-        sys.exit(1)
-
-    profile_dir = Path("data/profile") / profile_name
-    profile_dir.mkdir(parents=True, exist_ok=True)
-
-    output_file = profile_dir / "profile.json"
-    resume_copy_file = profile_dir / "resume.txt"
-
-    resume_text = input_file.read_text(encoding="utf-8")
-
-    client = OpenAI()
-
+def extract_resume(client: OpenAI, resume_text: str) -> dict:
     response = client.responses.create(
         model=OPENAI_MODEL,
         input=[
@@ -115,10 +95,7 @@ def main() -> None:
                     "Use only facts from the resume. Do not invent missing details."
                 ),
             },
-            {
-                "role": "user",
-                "content": resume_text,
-            },
+            {"role": "user", "content": resume_text},
         ],
         text={
             "format": {
@@ -129,18 +106,26 @@ def main() -> None:
             }
         },
     )
+    return json.loads(response.output_text)
 
-    profile = json.loads(response.output_text)
 
-    resume_copy_file.write_text(resume_text, encoding="utf-8")
+def main() -> None:
+    if len(sys.argv) != 3:
+        print("Usage: python extract_resume_ai.py <profile-name> <resume-file>")
+        raise SystemExit(1)
 
-    output_file.write_text(
-        json.dumps(profile, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    profile_name = sys.argv[1].strip()
+    input_file = Path(sys.argv[2])
+    if not input_file.exists():
+        print(f"Resume file not found: {input_file}")
+        raise SystemExit(1)
 
-    print(f"Saved {output_file}")
-    print(f"Saved {resume_copy_file}")
+    resume_text = input_file.read_text(encoding="utf-8")
+    profile = extract_resume(OpenAI(), resume_text)
+    saved = save_profile(profile_name, resume_text, profile)
+    print(f"Saved profile {saved['profile_name']} to SQLite")
+    print(f"Profile hash: {saved['profile_hash']}")
+
 
 if __name__ == "__main__":
     main()

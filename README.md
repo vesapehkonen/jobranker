@@ -80,13 +80,15 @@ OPENAI_MODEL=gpt-5.4-mini
 
 ## Add Resume Profile
 
-Resume profiles are used for AI-powered job ranking. Resume files must be in text format (`.txt` or `.md`).
+Resume profiles are stored in SQLite and used for AI-powered job ranking. Source resumes must be in text format (`.txt` or `.md`).
 
 Add a resume profile using:
 
 ```bash
 python extract_resume_ai.py <profile-name> <resume-file>
 ```
+
+This extracts the structured profile and stores both it and the resume text in `data/jobranker.db`.
 
 ---
 
