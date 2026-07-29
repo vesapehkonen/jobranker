@@ -12,11 +12,12 @@ JobRanker helps you collect job postings directly from your browser, extract str
 
 - Browser extension for capturing job postings
 - AI-powered job extraction and ranking
-- Local-first architecture
-- Static HTML dashboard/report
+- Local-first SQLite architecture
+- Searchable, paginated web dashboard
 - Application workflow tracking
 - Resume profile support
-- Queue-based background processing
+- SQLite-backed background processing queue
+- AI token and cost tracking
 - Simple setup with shell scripts
 
 ---
@@ -28,12 +29,18 @@ Browser Extension
         ↓
 FastAPI Capture API
         ↓
-File Queue
+SQLite jobs, artifacts, and queue
         ↓
 AI Extraction + Ranking Worker
         ↓
-Static HTML Report
+SQLite rankings and workflow state
+        ↓
+API-driven Web Report
 ```
+
+FastAPI and the worker share `data/jobranker.db`. The browser extension
+captures the active page, the worker processes pending queue entries, and the
+report loads job summaries and details from the API.
 
 ---
 
@@ -78,6 +85,9 @@ OPENAI_JOB_RANK_MODEL=gpt-5.4-mini
 OPENAI_RESUME_EXTRACT_MODEL=gpt-5.4-mini
 ```
 
+`setup.sh` generates `API_TOKEN` automatically. The API and browser extension
+use it to authorize capture and workflow updates.
+
 ---
 
 ## Add Resume Profile
@@ -87,6 +97,10 @@ Resume profiles are stored in SQLite and used for AI-powered job ranking. Source
 Add a resume profile using:
 
 ```bash
+source .venv/bin/activate
+set -a
+source .env
+set +a
 python extract_resume_ai.py <profile-name> <resume-file>
 ```
 
@@ -106,7 +120,7 @@ This will:
 
 - Start FastAPI server
 - Start worker process
-- Generate report
+- Initialize or upgrade the SQLite schema
 - Open dashboard automatically
 
 Dashboard URL:
@@ -130,7 +144,7 @@ When capturing the first job posting, the extension will ask for the API token.
 
 Copy `API_TOKEN` from `.env` and paste it into the extension prompt.
 
-You can now capture job postings directly from supported job sites.
+You can now capture a job posting from the active browser page.
 
 ---
 
@@ -140,8 +154,7 @@ You can now capture job postings directly from supported job sites.
 
 ```bash
 cd extension
-npm init -y
-npm install -D typescript @types/chrome
+npm install
 npx tsc
 ```
 
@@ -149,6 +162,9 @@ npx tsc
 
 ```bash
 source .venv/bin/activate
+set -a
+source .env
+set +a
 uvicorn app:app --reload
 ```
 
@@ -156,8 +172,26 @@ uvicorn app:app --reload
 
 ```bash
 source .venv/bin/activate
+set -a
+source .env
+set +a
 python worker.py
 ```
+
+## Tests
+
+```bash
+.venv/bin/python -m unittest discover -v
+```
+
+## AI Usage Report
+
+```bash
+.venv/bin/python ai_cost_report.py
+```
+
+This prints recorded OpenAI calls, token usage, and estimated costs from
+SQLite.
 
 ---
 
@@ -166,26 +200,40 @@ python worker.py
 ```text
 jobranker/
 ├── app.py
+├── database.py
 ├── worker.py
 ├── report_data.py
+├── extract_job_ai.py
+├── extract_resume_ai.py
+├── rank_job_ai.py
+├── migrations/
+├── templates/
+│   └── jobs_report.html
+├── static/
+│   ├── jobs-report.css
+│   └── jobs-report.js
+├── extension/
+│   ├── src/
+│   ├── dist/
+│   └── manifest.json
+├── tests/
+├── data/
+│   └── jobranker.db
 ├── setup.sh
 ├── start.sh
-├── requirements.txt
-├── extension/
-├── queue/
-├── reports/
-├── templates/
-└── data/
+└── requirements.txt
 ```
 
 ---
 
 # Security Notes
 
-- API protected using bearer token
+- Capture and workflow mutation endpoints use a bearer token
+- Some report and read-only endpoints are currently unauthenticated
 - Backend binds to localhost by default
 - No cloud storage
-- Job data stays on local machine
+- Job data and resume profiles stay in local SQLite storage
+- Resume and job content is sent to OpenAI for extraction and ranking
 
 ---
 
@@ -195,10 +243,9 @@ jobranker/
 - Resume tailoring
 - Cover letter generation
 - Company memory/history
-- Search across captured jobs
 - Better duplicate detection
 - Docker support
-- SQLite/Postgres backend
+- Optional PostgreSQL backend
 
 ---
 
@@ -225,4 +272,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
