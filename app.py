@@ -187,7 +187,6 @@ def report(request: Request):
         request=request,
         name="jobs_report.html",
         context={
-            "jobs": [],
             "total_jobs": job_count(),
             "report_version": report_version(),
             "api_token": API_TOKEN or "",
