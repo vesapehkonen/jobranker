@@ -5,7 +5,7 @@ from openai import OpenAI
 
 from config import RESUME_EXTRACT_MODEL
 from ai_costs import track_openai_response
-from database import save_profile
+from database import initialize_database, save_profile
 
 SCHEMA = {
     "type": "object",
@@ -124,6 +124,7 @@ def main() -> None:
         print("Usage: python extract_resume_ai.py <profile-name> <resume-file>")
         raise SystemExit(1)
 
+    initialize_database()
     profile_name = sys.argv[1].strip()
     input_file = Path(sys.argv[2])
     if not input_file.exists():

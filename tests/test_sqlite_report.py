@@ -8,6 +8,7 @@ from database import (
     capture_job_record,
     complete_queue_item,
     connect,
+    initialize_database,
     list_job_summaries,
 )
 from report_data import read_ranked_jobs
@@ -17,6 +18,7 @@ class SQLiteReportTests(unittest.TestCase):
     def test_job_summaries_support_search_sort_score_and_pagination(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            initialize_database(database_file)
             for uid, title, company, score in (
                 ("job-a", "Python Engineer", "Alpha", 90),
                 ("job-b", "Java Engineer", "Beta", 70),
@@ -58,6 +60,7 @@ class SQLiteReportTests(unittest.TestCase):
     def test_pending_and_completed_jobs_are_built_from_sqlite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            initialize_database(database_file)
             capture_job_record(
                 "pending-job",
                 {"url": "https://example.com/pending", "title": "Pending role", "text": "body"},

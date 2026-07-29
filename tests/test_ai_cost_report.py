@@ -5,13 +5,14 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from ai_cost_report import print_report
-from database import record_ai_cost
+from database import initialize_database, record_ai_cost
 
 
 class AiCostReportTests(unittest.TestCase):
     def test_report_lists_calls_and_summaries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            initialize_database(database_file)
             record_ai_cost(
                 provider="openai",
                 operation="job_extract",

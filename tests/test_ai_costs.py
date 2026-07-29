@@ -4,13 +4,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from ai_costs import track_openai_response
-from database import connect
+from database import connect, initialize_database
 
 
 class AiCostTests(unittest.TestCase):
     def test_tracks_token_breakdown_and_cost(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            initialize_database(database_file)
             usage = SimpleNamespace(
                 input_tokens=1_000_000,
                 output_tokens=100_000,
@@ -45,6 +46,7 @@ class AiCostTests(unittest.TestCase):
     def test_unknown_model_tracks_tokens_without_guessing_cost(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            initialize_database(database_file)
             response = SimpleNamespace(
                 id="resp_unknown",
                 model="custom-model",
@@ -63,6 +65,7 @@ class AiCostTests(unittest.TestCase):
     def test_gpt_5_6_model_prices(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            initialize_database(database_file)
             response = SimpleNamespace(
                 id="resp_terra",
                 model="gpt-5.6-terra",
@@ -80,6 +83,7 @@ class AiCostTests(unittest.TestCase):
     def test_gpt_5_4_nano_price(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            initialize_database(database_file)
             response = SimpleNamespace(
                 id="resp_nano",
                 model="gpt-5.4-nano-2026-03-17",

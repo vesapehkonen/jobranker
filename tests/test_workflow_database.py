@@ -44,6 +44,7 @@ class WorkflowDatabaseTests(unittest.TestCase):
     def test_repeating_same_status_does_not_duplicate_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            apply_migrations(database_file)
             fallback = {"status": "new", "created_at": "created"}
             update_application_status(
                 "job-1", "interested", fallback=fallback,
@@ -62,6 +63,7 @@ class WorkflowDatabaseTests(unittest.TestCase):
     def test_notes_update_can_import_a_legacy_only_job(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            apply_migrations(database_file)
             job = update_job_notes(
                 "legacy-job",
                 "Call recruiter",

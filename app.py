@@ -1,5 +1,6 @@
 import hashlib
 import os
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -10,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from database import (
     capture_job_record,
+    initialize_database,
     latest_queue_item,
     list_job_summaries,
     job_count,
@@ -27,7 +29,13 @@ ALLOWED_STATUSES = {
     "final_round", "offer", "rejected", "withdrawn", "skipped", "archived",
 }
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    initialize_database()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

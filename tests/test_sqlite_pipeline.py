@@ -11,6 +11,7 @@ from database import (
     connect,
     fail_queue_item,
     get_job_state,
+    initialize_database,
     retry_failed_queue_item,
     save_job_artifact,
     update_queue_phase,
@@ -23,6 +24,7 @@ class SQLitePipelineTests(unittest.TestCase):
     def test_capture_claim_artifacts_and_complete(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            initialize_database(database_file)
             raw = {"url": "https://example.com/1", "title": "Engineer", "text": "About the job\nBuild things"}
             state, queue_id = capture_job_record("job-1", raw, database_file=database_file)
             self.assertIsNone(state)
@@ -58,6 +60,7 @@ class SQLitePipelineTests(unittest.TestCase):
     def test_failure_can_be_retried(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            initialize_database(database_file)
             capture_job_record("job-1", {"text": "body"}, database_file=database_file)
             item = claim_next_queue_item(database_file=database_file)
             fail_queue_item(item["id"], "boom", "trace", database_file=database_file)

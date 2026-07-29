@@ -7,6 +7,7 @@ from database import (
     claim_next_queue_item,
     complete_queue_item,
     fail_queue_item,
+    initialize_database,
     load_enabled_profiles,
     save_job_artifact,
     update_queue_phase,
@@ -59,6 +60,7 @@ def run_once() -> bool:
 
 
 def main() -> None:
+    initialize_database()
     print("Worker started", flush=True)
     print("Watching SQLite queue", flush=True)
     while True:

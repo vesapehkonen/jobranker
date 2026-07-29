@@ -5,6 +5,7 @@ from openai import OpenAI
 
 from config import JOB_EXTRACT_MODEL
 from ai_costs import track_openai_response
+from database import initialize_database
 
 DEFAULT_PROMPT_FILE = Path(__file__).with_name("job_extract_prompt.txt")
 
@@ -206,6 +207,7 @@ def main() -> None:
         )
         sys.exit(1)
 
+    initialize_database()
     input_file = Path(sys.argv[1])
     output_dir = Path(sys.argv[2])
     prompt_file = Path(sys.argv[3]) if len(sys.argv) == 4 else DEFAULT_PROMPT_FILE

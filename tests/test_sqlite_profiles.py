@@ -4,7 +4,13 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from database import connect, list_profiles, load_enabled_profiles, save_profile
+from database import (
+    connect,
+    initialize_database,
+    list_profiles,
+    load_enabled_profiles,
+    save_profile,
+)
 from extract_resume_ai import extract_resume
 
 
@@ -22,6 +28,7 @@ class SQLiteProfileTests(unittest.TestCase):
     def test_profile_upsert_and_enabled_loading(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            initialize_database(database_file)
             first = save_profile(
                 "backend", "resume v1", {"candidate_title": "Engineer"},
                 database_file=database_file,
@@ -45,6 +52,7 @@ class SQLiteProfileTests(unittest.TestCase):
     def test_disabled_profile_is_not_loaded_or_reenabled_by_update(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
+            initialize_database(database_file)
             save_profile("backend", "resume", {"title": "Engineer"}, database_file=database_file)
             save_profile("cloud", "resume", {"title": "Cloud Engineer"}, database_file=database_file)
             with connect(database_file) as db:

@@ -108,7 +108,6 @@ def record_ai_cost(
     database_file: Path | str = DEFAULT_DATABASE_FILE,
 ) -> dict[str, Any]:
     """Insert one AI API usage record and return the stored row."""
-    apply_migrations(database_file)
     now = utc_now()
     price_values = (
         (
@@ -199,7 +198,6 @@ def update_application_status(
     now: str | None = None,
 ) -> dict[str, Any]:
     """Update status transactionally, creating a legacy-only job if needed."""
-    apply_migrations(database_file)
     fallback = fallback or {}
     now = now or utc_now()
 
@@ -240,7 +238,6 @@ def update_job_notes(
     now: str | None = None,
 ) -> dict[str, Any]:
     """Update notes transactionally, creating a legacy-only job if needed."""
-    apply_migrations(database_file)
     fallback = fallback or {}
     now = now or utc_now()
 
@@ -269,7 +266,6 @@ def capture_job_record(
     database_file: Path | str = DEFAULT_DATABASE_FILE,
 ) -> tuple[str | None, int | None]:
     """Atomically insert a job, its raw artifact, and a pending queue row."""
-    apply_migrations(database_file)
     now = utc_now()
     with connect(database_file) as db:
         db.execute("BEGIN IMMEDIATE")
@@ -347,7 +343,6 @@ def claim_next_queue_item(
     database_file: Path | str = DEFAULT_DATABASE_FILE,
     lease_seconds: int = 900,
 ) -> dict[str, Any] | None:
-    apply_migrations(database_file)
     now = utc_now()
     lease_until = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
     with connect(database_file) as db:
@@ -660,7 +655,6 @@ def report_version(
 def retry_failed_queue_item(
     job_uid: str, *, database_file: Path | str = DEFAULT_DATABASE_FILE
 ) -> str:
-    apply_migrations(database_file)
     now = utc_now()
     with connect(database_file) as db:
         db.execute("BEGIN IMMEDIATE")
@@ -705,7 +699,6 @@ def save_profile(
     if not isinstance(profile, dict) or not profile:
         raise ValueError("Profile must be a non-empty dictionary")
 
-    apply_migrations(database_file)
     now = utc_now()
     profile_json = json.dumps(profile, ensure_ascii=False, sort_keys=True)
     profile_hash = hashlib.sha256(profile_json.encode("utf-8")).hexdigest()

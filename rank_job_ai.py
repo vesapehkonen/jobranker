@@ -5,7 +5,7 @@ from openai import OpenAI
 
 from config import JOB_RANK_MODEL
 from ai_costs import track_openai_response
-from database import load_enabled_profiles
+from database import initialize_database, load_enabled_profiles
 
 
 WEIGHTS = {
@@ -292,6 +292,7 @@ def main() -> None:
         print("Usage: python rank_job_ai.py <structured-job.json> <output-dir>")
         raise SystemExit(1)
 
+    initialize_database()
     job_file = Path(sys.argv[1])
     output_dir = Path(sys.argv[2])
     output_dir.mkdir(parents=True, exist_ok=True)
