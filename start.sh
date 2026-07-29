@@ -35,9 +35,6 @@ fi
 
 PY="$VENV_DIR/bin/python"
 
-echo "Generating initial report..."
-"$PY" generate_report.py || true
-
 echo "Starting FastAPI..."
 "$PY" -m uvicorn app:app --host "$HOST" --port "$PORT" &
 API_PID=$!

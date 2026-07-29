@@ -1,19 +1,8 @@
-import csv
 import json
-import os
-import time
 from datetime import datetime
 from html import escape
-from pathlib import Path
-
-from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from database import connect
-
-REPORT_DIR = Path("data/reports")
-TEMPLATE_DIR = Path("templates")
-CSV_FILE = REPORT_DIR / "jobs.csv"
-HTML_FILE = REPORT_DIR / "jobs.html"
 
 STATUS_PRIORITY = {
     "new": 0, "interested": 1, "applied": 2, "recruiter_contact": 3,
@@ -53,10 +42,12 @@ def format_timestamp(value: str | None) -> str:
         return value
 
 
-def read_ranked_jobs() -> list[dict]:
+def read_ranked_jobs(job_uid: str | None = None) -> list[dict]:
+    where = "WHERE j.job_uid = ?" if job_uid is not None else ""
+    parameters = (job_uid,) if job_uid is not None else ()
     with connect() as db:
         rows = db.execute(
-            """
+            f"""
             SELECT
                 j.*,
                 a.raw_json, a.cleaned_json, a.structured_json, a.ranked_json,
@@ -70,7 +61,9 @@ def read_ranked_jobs() -> list[dict]:
                 WHERE q2.job_uid = j.job_uid
                 ORDER BY q2.id DESC LIMIT 1
             )
-            """
+            {where}
+            """,
+            parameters,
         ).fetchall()
 
     jobs = []
@@ -153,50 +146,9 @@ def read_ranked_jobs() -> list[dict]:
     return jobs
 
 
-def write_csv(jobs: list[dict]) -> None:
-    if not jobs:
-        if CSV_FILE.exists():
-            CSV_FILE.unlink()
-        print("No jobs found, no CSV file created.")
-        return
-    csv_jobs = []
-    for job in jobs:
-        csv_job = {key: value for key, value in job.items() if not key.endswith("_html")}
-        for key in (
-            "matched_strengths", "weak_areas", "interview_risk", "requirements",
-            "preferred_requirements", "technologies", "benefits",
-        ):
-            value = csv_job.get(key, [])
-            csv_job[key] = "; ".join(value) if isinstance(value, list) else value
-        csv_jobs.append(csv_job)
-    with CSV_FILE.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=list(csv_jobs[0]))
-        writer.writeheader()
-        writer.writerows(csv_jobs)
-    print(f"Saved {CSV_FILE}")
-
-
-def write_html(jobs: list[dict]) -> None:
-    env = Environment(
-        loader=FileSystemLoader(TEMPLATE_DIR),
-        autoescape=select_autoescape(["html", "xml"]),
+def read_job(job_uid: str) -> dict | None:
+    """Return the report representation for one job."""
+    return next(
+        iter(read_ranked_jobs(job_uid)),
+        None,
     )
-    html = env.get_template("jobs_report.html").render(
-        jobs=jobs,
-        total_jobs=len(jobs),
-        report_mtime=int(time.time()),
-        api_token=os.getenv("API_TOKEN", ""),
-    )
-    HTML_FILE.write_text(html, encoding="utf-8")
-    print(f"Saved {HTML_FILE}")
-
-
-def main() -> None:
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    jobs = read_ranked_jobs()
-    write_csv(jobs)
-    write_html(jobs)
-
-
-if __name__ == "__main__":
-    main()

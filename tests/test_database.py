@@ -13,7 +13,14 @@ class DatabaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"
 
-            self.assertEqual(["001_initial.sql", "002_allow_duplicate_source_ids.sql"], apply_migrations(database_file))
+            self.assertEqual(
+                [
+                    "001_initial.sql",
+                    "002_allow_duplicate_source_ids.sql",
+                    "003_ai_costs.sql",
+                ],
+                apply_migrations(database_file),
+            )
             self.assertEqual([], apply_migrations(database_file))
 
             with connect(database_file) as db:
@@ -25,7 +32,10 @@ class DatabaseTests(unittest.TestCase):
                     )
                 }
             self.assertTrue(
-                {"jobs", "job_artifacts", "queue_items", "profiles", "profile_rankings"}
+                {
+                    "jobs", "job_artifacts", "queue_items", "profiles",
+                    "profile_rankings", "ai_costs",
+                }
                 <= tables
             )
 

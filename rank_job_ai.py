@@ -3,7 +3,8 @@ import sys
 from pathlib import Path
 from openai import OpenAI
 
-from config import OPENAI_MODEL
+from config import JOB_RANK_MODEL
+from ai_costs import track_openai_response
 from database import load_enabled_profiles
 
 
@@ -99,9 +100,11 @@ def rank_profile(
     profile_name: str,
     resume_profile: dict,
     job: dict,
+    *,
+    job_uid: str | None = None,
 ) -> dict:
     response = client.responses.create(
-        model=OPENAI_MODEL,
+        model=JOB_RANK_MODEL,
         input=[
             {
                 "role": "system",
@@ -136,6 +139,13 @@ def rank_profile(
             }
         },
     )
+    if getattr(response, "usage", None) is not None:
+        track_openai_response(
+            response,
+            "job_rank",
+            job_uid=job_uid,
+            profile_name=profile_name,
+        )
 
     ranking = json.loads(response.output_text)
 
@@ -146,13 +156,108 @@ def rank_profile(
     return ranking
 
 
-def rank_job(client: OpenAI, job: dict, profiles: dict[str, dict]) -> dict:
+def rank_profiles(
+    client: OpenAI,
+    job: dict,
+    profiles: dict[str, dict],
+    *,
+    job_uid: str | None = None,
+) -> dict[str, dict]:
+    profile_names = list(profiles)
+    batch_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "rankings": {
+                "type": "array",
+                "minItems": len(profile_names),
+                "maxItems": len(profile_names),
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "profile_name": {
+                            "type": "string",
+                            "enum": profile_names,
+                        },
+                        "ranking": SCHEMA,
+                    },
+                    "required": ["profile_name", "ranking"],
+                },
+            }
+        },
+        "required": ["rankings"],
+    }
+    response = client.responses.create(
+        model=JOB_RANK_MODEL,
+        input=[
+            {
+                "role": "system",
+                "content": (
+                    "Evaluate how well each candidate resume profile matches the "
+                    "software engineering job. Return exactly one ranking for every "
+                    "profile. Do not rank based on location, salary, or visa "
+                    "sponsorship. Use evidence from each resume profile and the job "
+                    "only. Score each dimension from 0 to 100. Be realistic and do "
+                    "not over-score weak evidence. Profile names are labels only."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "weights": WEIGHTS,
+                        "job": job,
+                        "profiles": profiles,
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ],
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "job_fit_rankings",
+                "schema": batch_schema,
+                "strict": True,
+            }
+        },
+    )
+    if getattr(response, "usage", None) is not None:
+        track_openai_response(response, "job_rank", job_uid=job_uid)
+
+    result = json.loads(response.output_text)
+    rankings: dict[str, dict] = {}
+    for item in result["rankings"]:
+        profile_name = item["profile_name"]
+        if profile_name in rankings:
+            raise ValueError(f"Duplicate ranking returned for profile {profile_name}")
+        ranking = item["ranking"]
+        weighted_score = calculate_weighted_score(ranking["scores"])
+        ranking["overall_fit_score"] = weighted_score
+        ranking["recommendation"] = recommendation_from_score(weighted_score)
+        rankings[profile_name] = ranking
+
+    missing = set(profile_names) - rankings.keys()
+    if missing:
+        raise ValueError(
+            f"Missing ranking for profile(s): {', '.join(sorted(missing))}"
+        )
+    return rankings
+
+
+def rank_job(
+    client: OpenAI,
+    job: dict,
+    profiles: dict[str, dict],
+    *,
+    job_uid: str | None = None,
+) -> dict:
     if not profiles:
         raise ValueError("At least one resume profile is required")
-    profile_rankings = {
-        profile_name: rank_profile(client, profile_name, resume_profile, job)
-        for profile_name, resume_profile in profiles.items()
-    }
+    profile_rankings = rank_profiles(
+        client, job, profiles, job_uid=job_uid
+    )
     recommended_profile = max(
         profile_rankings,
         key=lambda name: profile_rankings[name]["overall_fit_score"],

@@ -12,7 +12,6 @@ from database import (
     update_queue_phase,
 )
 from extract_job_ai import DEFAULT_PROMPT_FILE, extract_job, read_prompt
-from generate_report import main as generate_report
 from parse import parse_job
 from rank_job_ai import rank_job
 
@@ -33,12 +32,14 @@ def process_queue_item(item: dict) -> None:
 
     update_queue_phase(queue_id, "extract")
     client = OpenAI()
-    structured = extract_job(client, cleaned, read_prompt(DEFAULT_PROMPT_FILE))
+    structured = extract_job(
+        client, cleaned, read_prompt(DEFAULT_PROMPT_FILE), job_uid=job_uid
+    )
     save_job_artifact(job_uid, "structured", structured)
 
     update_queue_phase(queue_id, "rank")
     profiles = load_enabled_profiles()
-    ranked = rank_job(client, structured, profiles)
+    ranked = rank_job(client, structured, profiles, job_uid=job_uid)
     save_job_artifact(job_uid, "ranked", ranked)
 
     complete_queue_item(queue_id)
@@ -54,10 +55,6 @@ def run_once() -> bool:
     except Exception as error:
         fail_queue_item(item["id"], str(error), traceback.format_exc())
         print(f"Failed job {item['job_uid']}: {error}", flush=True)
-    try:
-        generate_report()
-    except Exception as report_error:
-        print(f"Report regeneration failed: {report_error}", flush=True)
     return True
 
 

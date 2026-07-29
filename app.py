@@ -1,24 +1,26 @@
 import hashlib
 import os
-from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 from database import (
     capture_job_record,
     latest_queue_item,
+    list_job_summaries,
+    job_count,
     queue_counts,
+    report_version,
     retry_failed_queue_item,
     update_application_status,
     update_job_notes as update_notes_in_database,
 )
-from generate_report import main as generate_report
+from report_data import read_job
 
-REPORT_FILE = Path("data/reports/jobs.html")
 API_TOKEN = os.getenv("API_TOKEN")
 ALLOWED_STATUSES = {
     "new", "interested", "applied", "recruiter_contact", "interview",
@@ -33,6 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
 
 def normalize(value: Any) -> str:
@@ -42,16 +45,6 @@ def normalize(value: Any) -> str:
 def build_job_uid(payload: dict[str, Any]) -> str:
     key = "|".join([normalize(payload.get("url")), normalize(payload.get("title"))])
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
-
-
-def regenerate_report() -> None:
-    try:
-        generate_report()
-    except Exception as error:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Database update succeeded, but report regeneration failed: {error}",
-        ) from error
 
 
 def verify_api_token(authorization: str | None = Header(default=None)) -> None:
@@ -82,7 +75,6 @@ def capture_job(payload: dict[str, Any], _: None = Depends(verify_api_token)) ->
                 "report_url": "http://127.0.0.1:8000/report",
             },
         )
-    regenerate_report()
     return JSONResponse({
         "status": "queued",
         "job_uid": job_uid,
@@ -102,12 +94,10 @@ def update_job_status(
     if status not in ALLOWED_STATUSES:
         raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
     update_application_status(job_uid, status)
-    regenerate_report()
     return JSONResponse({
         "status": "ok",
         "job_uid": job_uid,
         "job_status": status,
-        "report_regenerated": True,
     })
 
 
@@ -121,12 +111,10 @@ def update_job_notes(
     if notes is None:
         raise HTTPException(status_code=400, detail="Missing notes")
     job = update_notes_in_database(job_uid, str(notes))
-    regenerate_report()
     return JSONResponse({
         "status": "ok",
         "job_uid": job_uid,
         "notes": job["notes"],
-        "report_regenerated": True,
     })
 
 
@@ -148,11 +136,55 @@ def queue_summary(_: None = Depends(verify_api_token)) -> dict[str, int]:
     return queue_counts()
 
 
+@app.get("/jobs")
+def get_jobs(
+    search: str = "",
+    status: str = "new",
+    sort: str = "newest",
+    minimum_score: int | None = None,
+    page: int = 1,
+    page_size: int = 25,
+) -> dict[str, Any]:
+    if status not in ALLOWED_STATUSES | {"all"}:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+    if sort not in {
+        "newest", "oldest", "score_desc", "score_asc",
+        "updated", "company", "title",
+    }:
+        raise HTTPException(status_code=400, detail=f"Invalid sort: {sort}")
+    if minimum_score is not None and not 0 <= minimum_score <= 100:
+        raise HTTPException(status_code=400, detail="minimum_score must be 0-100")
+    return list_job_summaries(
+        search=search, status=status, sort=sort,
+        minimum_score=minimum_score, page=page, page_size=page_size,
+    )
+
+
+@app.get("/jobs/{job_uid}")
+def get_job_detail(
+    job_uid: str,
+) -> dict[str, Any]:
+    job = read_job(job_uid)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_uid}")
+    return {
+        key: value for key, value in job.items()
+        if not key.endswith("_html")
+    }
+
+
 @app.get("/report")
-def report() -> FileResponse:
-    if not REPORT_FILE.exists():
-        regenerate_report()
-    return FileResponse(REPORT_FILE)
+def report(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="jobs_report.html",
+        context={
+            "jobs": [],
+            "total_jobs": job_count(),
+            "report_version": report_version(),
+            "api_token": API_TOKEN or "",
+        },
+    )
 
 
 @app.get("/health")
@@ -167,7 +199,6 @@ def retry_job(job_uid: str, _: None = Depends(verify_api_token)) -> JSONResponse
         raise HTTPException(status_code=404, detail=f"No failed queue item found for {job_uid}")
     if result == "active":
         raise HTTPException(status_code=409, detail=f"Job {job_uid} is already active")
-    regenerate_report()
     return JSONResponse({
         "status": "queued",
         "job_uid": job_uid,
@@ -176,9 +207,9 @@ def retry_job(job_uid: str, _: None = Depends(verify_api_token)) -> JSONResponse
 
 
 @app.get("/report/status")
-def report_status() -> dict[str, float | bool]:
-    exists = REPORT_FILE.exists()
+def report_status() -> dict[str, str | bool | int]:
     return {
-        "exists": exists,
-        "mtime": int(REPORT_FILE.stat().st_mtime) if exists else 0,
+        "exists": True,
+        "version": report_version(),
+        "total_jobs": job_count(),
     }

@@ -1,7 +1,8 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
 
 from database import (
     capture_job_record,
@@ -68,11 +69,43 @@ class SQLitePipelineTests(unittest.TestCase):
 
     def test_rank_job_accepts_and_returns_dictionaries(self) -> None:
         rankings = {
-            "backend": {"overall_fit_score": 80, "recommendation": "strong"},
-            "cloud": {"overall_fit_score": 60, "recommendation": "weak"},
+            "backend": {
+                "overall_fit_score": 0,
+                "recommendation": "no",
+                "scores": {
+                    "technical_skill_fit": 80,
+                    "role_experience_fit": 80,
+                    "domain_fit": 80,
+                    "seniority_fit": 80,
+                    "resume_evidence_strength": 80,
+                },
+            },
+            "cloud": {
+                "overall_fit_score": 0,
+                "recommendation": "no",
+                "scores": {
+                    "technical_skill_fit": 60,
+                    "role_experience_fit": 60,
+                    "domain_fit": 60,
+                    "seniority_fit": 60,
+                    "resume_evidence_strength": 60,
+                },
+            },
         }
-        with patch("rank_job_ai.rank_profile", side_effect=lambda client, name, profile, job: rankings[name]):
-            result = rank_job(object(), {"title": "Engineer"}, {"backend": {}, "cloud": {}})
+        response = SimpleNamespace(
+            output_text=json.dumps({
+                "rankings": [
+                    {"profile_name": name, "ranking": ranking}
+                    for name, ranking in rankings.items()
+                ]
+            }),
+            usage=None,
+        )
+        responses = SimpleNamespace(create=lambda **kwargs: response)
+        client = SimpleNamespace(responses=responses)
+        result = rank_job(
+            client, {"title": "Engineer"}, {"backend": {}, "cloud": {}}
+        )
         self.assertEqual("backend", result["recommended_profile"])
         self.assertEqual({"backend": 80, "cloud": 60}, result["profile_scores"])
 

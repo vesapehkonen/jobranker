@@ -34,7 +34,9 @@ if [ ! -f .env ]; then
   else
     cat > .env <<EOF
 OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5.4-mini
+OPENAI_JOB_EXTRACT_MODEL=gpt-5.4-nano
+OPENAI_JOB_RANK_MODEL=gpt-5.4-mini
+OPENAI_RESUME_EXTRACT_MODEL=gpt-5.4-mini
 API_TOKEN=change-me
 HOST=127.0.0.1
 PORT=8000
@@ -79,4 +81,3 @@ echo "Next:"
 echo "1. Edit .env and set OPENAI_API_KEY"
 echo "2. Run ./start.sh"
 echo "3. Add API_TOKEN from .env to the extension settings"
-

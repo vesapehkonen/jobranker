@@ -196,6 +196,31 @@ Do NOT include:
 short_summary
 Write exactly ONE sentence.
 
+domain
+- Concise product/domain/specialization.
+- Example: "Satellite ground infrastructure / antenna validation".
+- Do not use generic labels like "Software Engineering".
+
+responsibilities
+- Extract concrete engineering work.
+- Max 8 short items.
+- Do not copy long sentences.
+
+technical_areas
+- Extract resume-matching technical areas.
+- Examples: distributed systems, CI/CD, data pipelines, API design, microservices, hardware integration.
+
+must_have_constraints
+- Include hard constraints only: citizenship, clearance, export control, visa, location, required degree.
+- Do not include ordinary technical skills.
+
+seniority_signals
+- Include years of experience, architecture ownership, tech lead, mentoring, senior/staff/principal signals.
+
+nice_to_have_signals
+- Include preferred qualifications and bonus signals.
+
+
 Focus only on:
 - actual work
 - technical domain
@@ -218,11 +243,6 @@ Good:
 
 Bad:
 "Principal Software Engineer role at Microsoft in Redmond, hybrid."
-
-description
-- Preserve a cleaned version of the actual selected job description.
-- Remove obvious page navigation, unrelated similar jobs, job alerts, footer links, and duplicated boilerplate when possible.
-- Keep responsibilities, qualifications, compensation, and concrete job details.
 
 INTERNAL PROCESS
 Before producing final JSON, internally perform these steps:

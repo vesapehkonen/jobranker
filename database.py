@@ -87,6 +87,74 @@ def initialize_database(
     return apply_migrations(database_file)
 
 
+def record_ai_cost(
+    *,
+    provider: str,
+    operation: str,
+    model: str,
+    response_id: str | None,
+    job_uid: str | None,
+    profile_name: str | None,
+    input_tokens: int,
+    cached_input_tokens: int,
+    output_tokens: int,
+    reasoning_output_tokens: int,
+    total_tokens: int,
+    input_cost_usd: float | None,
+    cached_input_cost_usd: float | None,
+    output_cost_usd: float | None,
+    total_cost_usd: float | None,
+    pricing: Any = None,
+    database_file: Path | str = DEFAULT_DATABASE_FILE,
+) -> dict[str, Any]:
+    """Insert one AI API usage record and return the stored row."""
+    apply_migrations(database_file)
+    now = utc_now()
+    price_values = (
+        (
+            pricing.input_per_million,
+            pricing.cached_input_per_million,
+            pricing.output_per_million,
+        )
+        if pricing is not None
+        else (None, None, None)
+    )
+    with connect(database_file) as db:
+        db.execute(
+            """
+            INSERT INTO ai_costs (
+                provider, operation, model, response_id, job_uid, profile_name,
+                input_tokens, cached_input_tokens, output_tokens,
+                reasoning_output_tokens, total_tokens, input_cost_usd,
+                cached_input_cost_usd, output_cost_usd, total_cost_usd,
+                pricing_input_per_million, pricing_cached_per_million,
+                pricing_output_per_million, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(provider, response_id) WHERE response_id IS NOT NULL
+            DO NOTHING
+            """,
+            (
+                provider, operation, model, response_id, job_uid, profile_name,
+                input_tokens, cached_input_tokens, output_tokens,
+                reasoning_output_tokens, total_tokens, input_cost_usd,
+                cached_input_cost_usd, output_cost_usd, total_cost_usd,
+                *price_values, now,
+            ),
+        )
+        row = db.execute(
+            """
+            SELECT * FROM ai_costs
+            WHERE id = COALESCE(
+                (SELECT id FROM ai_costs
+                 WHERE provider = ? AND response_id = ?),
+                last_insert_rowid()
+            )
+            """,
+            (provider, response_id),
+        ).fetchone()
+    return dict(row)
+
+
 def _ensure_workflow_job(
     db: sqlite3.Connection,
     job_uid: str,
@@ -466,6 +534,127 @@ def queue_counts(
         for row in db.execute("SELECT status, COUNT(*) count FROM queue_items GROUP BY status"):
             result[row["status"]] = row["count"]
     return result
+
+
+JOB_SORTS = {
+    "newest": "created_at DESC, job_uid",
+    "oldest": "created_at, job_uid",
+    "score_desc": "score IS NULL, score DESC, created_at DESC",
+    "score_asc": "score IS NULL, score, created_at DESC",
+    "updated": "updated_at DESC, job_uid",
+    "company": "company COLLATE NOCASE, title COLLATE NOCASE",
+    "title": "title COLLATE NOCASE, company COLLATE NOCASE",
+}
+
+
+def list_job_summaries(
+    *,
+    search: str = "",
+    status: str = "new",
+    sort: str = "newest",
+    minimum_score: int | None = None,
+    page: int = 1,
+    page_size: int = 25,
+    database_file: Path | str = DEFAULT_DATABASE_FILE,
+) -> dict[str, Any]:
+    page = max(1, page)
+    page_size = min(100, max(1, page_size))
+    filters: list[str] = []
+    parameters: list[Any] = []
+    if status != "all":
+        filters.append("application_status = ?")
+        parameters.append(status)
+    if minimum_score is not None:
+        filters.append("score >= ?")
+        parameters.append(minimum_score)
+    for term in search.lower().split():
+        filters.append("search_text LIKE ?")
+        parameters.append(f"%{term}%")
+    where = f"WHERE {' AND '.join(filters)}" if filters else ""
+    cte = """
+    WITH job_data AS (
+        SELECT j.job_uid, j.application_status, j.application_status AS status,
+               j.notes, j.created_at, j.updated_at,
+               COALESCE(j.status_updated_at, j.updated_at) AS status_updated_at,
+               COALESCE(json_extract(a.structured_json,'$.company'),
+                        json_extract(a.ranked_json,'$.job.company')) AS company,
+               COALESCE(json_extract(a.structured_json,'$.title'),
+                        json_extract(a.ranked_json,'$.job.title'),
+                        json_extract(a.raw_json,'$.title'), j.page_title, '') AS title,
+               COALESCE(json_extract(a.structured_json,'$.job_url'),
+                        json_extract(a.raw_json,'$.url'), j.original_url, '#') AS url,
+               json_extract(a.structured_json,'$.location') AS location,
+               json_extract(a.structured_json,'$.main_skill') AS main_skill,
+               COALESCE(json_extract(a.structured_json,'$.short_summary'),
+                        json_extract(a.structured_json,'$.summary')) AS short_summary,
+               COALESCE(json_extract(a.structured_json,'$.job_source'),j.source) AS job_source,
+               COALESCE(json_extract(a.structured_json,'$.job_id'),j.external_job_id) AS external_job_id,
+               json_extract(a.ranked_json,'$.ranking.overall_fit_score') AS score,
+               json_extract(a.ranked_json,'$.ranking.recommendation') AS recommendation,
+               json_extract(a.ranked_json,'$.recommended_profile') AS recommended_profile,
+               q.status AS processing_status, q.phase AS processing_phase,
+               q.error AS processing_error,
+               LOWER(COALESCE(j.page_title,'') || ' ' || COALESCE(j.notes,'') || ' ' ||
+                     COALESCE(a.structured_json,'') || ' ' || COALESCE(a.ranked_json,'')) AS search_text
+        FROM jobs j
+        LEFT JOIN job_artifacts a ON a.job_uid=j.job_uid
+        LEFT JOIN queue_items q ON q.id=(
+            SELECT q2.id FROM queue_items q2 WHERE q2.job_uid=j.job_uid
+            ORDER BY q2.id DESC LIMIT 1
+        )
+    )
+    """
+    order_by = JOB_SORTS.get(sort, JOB_SORTS["newest"])
+    with connect(database_file) as db:
+        total = db.execute(
+            f"{cte} SELECT COUNT(*) FROM job_data {where}", parameters
+        ).fetchone()[0]
+        rows = db.execute(
+            f"{cte} SELECT * FROM job_data {where} ORDER BY {order_by} LIMIT ? OFFSET ?",
+            (*parameters, page_size, (page - 1) * page_size),
+        ).fetchall()
+    return {
+        "items": [
+            {key: value for key, value in dict(row).items() if key != "search_text"}
+            for row in rows
+        ],
+        "page": page,
+        "page_size": page_size,
+        "total_items": total,
+        "total_pages": (total + page_size - 1) // page_size,
+    }
+
+
+def job_count(
+    *, database_file: Path | str = DEFAULT_DATABASE_FILE
+) -> int:
+    with connect(database_file) as db:
+        return db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+
+
+def report_version(
+    *, database_file: Path | str = DEFAULT_DATABASE_FILE
+) -> str:
+    """Return a revision that changes whenever report-visible data changes."""
+    with connect(database_file) as db:
+        row = db.execute(
+            """
+            SELECT MAX(value) FROM (
+                SELECT COALESCE(MAX(updated_at), '') AS value FROM jobs
+                UNION ALL
+                SELECT COALESCE(MAX(updated_at), '') FROM queue_items
+                UNION ALL
+                SELECT COALESCE(MAX(raw_updated_at), '') FROM job_artifacts
+                UNION ALL
+                SELECT COALESCE(MAX(cleaned_updated_at), '') FROM job_artifacts
+                UNION ALL
+                SELECT COALESCE(MAX(structured_updated_at), '') FROM job_artifacts
+                UNION ALL
+                SELECT COALESCE(MAX(ranked_updated_at), '') FROM job_artifacts
+            )
+            """
+        ).fetchone()
+    return str(row[0] or "")
 
 
 def retry_failed_queue_item(

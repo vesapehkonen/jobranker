@@ -3,7 +3,8 @@ import sys
 from pathlib import Path
 from openai import OpenAI
 
-from config import OPENAI_MODEL
+from config import RESUME_EXTRACT_MODEL
+from ai_costs import track_openai_response
 from database import save_profile
 
 SCHEMA = {
@@ -82,9 +83,14 @@ SCHEMA = {
     ]
 }
 
-def extract_resume(client: OpenAI, resume_text: str) -> dict:
+def extract_resume(
+    client: OpenAI,
+    resume_text: str,
+    *,
+    profile_name: str | None = None,
+) -> dict:
     response = client.responses.create(
-        model=OPENAI_MODEL,
+        model=RESUME_EXTRACT_MODEL,
         input=[
             {
                 "role": "system",
@@ -106,6 +112,10 @@ def extract_resume(client: OpenAI, resume_text: str) -> dict:
             }
         },
     )
+    if getattr(response, "usage", None) is not None:
+        track_openai_response(
+            response, "resume_extract", profile_name=profile_name
+        )
     return json.loads(response.output_text)
 
 
@@ -121,7 +131,9 @@ def main() -> None:
         raise SystemExit(1)
 
     resume_text = input_file.read_text(encoding="utf-8")
-    profile = extract_resume(OpenAI(), resume_text)
+    profile = extract_resume(
+        OpenAI(), resume_text, profile_name=profile_name
+    )
     saved = save_profile(profile_name, resume_text, profile)
     print(f"Saved profile {saved['profile_name']} to SQLite")
     print(f"Profile hash: {saved['profile_hash']}")
