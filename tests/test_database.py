@@ -2,6 +2,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from database import apply_migrations, connect
@@ -9,6 +10,31 @@ from migrate_files_to_sqlite import migrate
 
 
 class DatabaseTests(unittest.TestCase):
+    def test_simultaneous_migration_initialization_is_serialized(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_file = Path(directory) / "jobranker.db"
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                results = list(
+                    executor.map(
+                        lambda _: apply_migrations(database_file),
+                        range(8),
+                    )
+                )
+
+            self.assertEqual(3, sum(len(result) for result in results))
+            with connect(database_file) as db:
+                versions = db.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version"
+                ).fetchall()
+            self.assertEqual(
+                [
+                    "001_initial.sql",
+                    "002_allow_duplicate_source_ids.sql",
+                    "003_ai_costs.sql",
+                ],
+                [row["version"] for row in versions],
+            )
+
     def test_migrations_are_idempotent_and_enable_foreign_keys(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"

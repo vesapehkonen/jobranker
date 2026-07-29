@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-import sqlite3
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -37,6 +39,20 @@ def migration_files(
     yield from sorted(directory.glob("*.sql"))
 
 
+@contextmanager
+def migration_lock(database_file: Path | str) -> Iterator[None]:
+    """Serialize schema migrations for processes sharing one database."""
+    database_path = Path(database_file)
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = database_path.with_name(f"{database_path.name}.migrate.lock")
+    with lock_file.open("a+b") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 def apply_migrations(
     database_file: Path | str = DEFAULT_DATABASE_FILE,
     migrations_dir: Path | str = DEFAULT_MIGRATIONS_DIR,
@@ -44,39 +60,40 @@ def apply_migrations(
     """Apply unapplied SQL files and return the versions applied this call."""
     applied: list[str] = []
 
-    with connect(database_file) as db:
-        db.execute("PRAGMA journal_mode = WAL")
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS schema_migrations (
-                version TEXT PRIMARY KEY,
-                applied_at TEXT NOT NULL
+    with migration_lock(database_file):
+        with connect(database_file) as db:
+            db.execute("PRAGMA journal_mode = WAL")
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version TEXT PRIMARY KEY,
+                    applied_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
 
-        for migration_file in migration_files(migrations_dir):
-            version = migration_file.name
-            exists = db.execute(
-                "SELECT 1 FROM schema_migrations WHERE version = ?",
-                (version,),
-            ).fetchone()
-            if exists:
-                continue
+            for migration_file in migration_files(migrations_dir):
+                version = migration_file.name
+                exists = db.execute(
+                    "SELECT 1 FROM schema_migrations WHERE version = ?",
+                    (version,),
+                ).fetchone()
+                if exists:
+                    continue
 
-            # executescript commits implicitly, so each migration records itself
-            # in the same script to avoid a schema without a migration marker.
-            quoted_version = version.replace("'", "''")
-            quoted_time = utc_now().replace("'", "''")
-            script = migration_file.read_text(encoding="utf-8")
-            db.executescript(
-                "BEGIN IMMEDIATE;\n"
-                f"{script}\n"
-                "INSERT INTO schema_migrations(version, applied_at) "
-                f"VALUES ('{quoted_version}', '{quoted_time}');\n"
-                "COMMIT;"
-            )
-            applied.append(version)
+                # executescript commits implicitly, so each migration records itself
+                # in the same script to avoid a schema without a migration marker.
+                quoted_version = version.replace("'", "''")
+                quoted_time = utc_now().replace("'", "''")
+                script = migration_file.read_text(encoding="utf-8")
+                db.executescript(
+                    "BEGIN IMMEDIATE;\n"
+                    f"{script}\n"
+                    "INSERT INTO schema_migrations(version, applied_at) "
+                    f"VALUES ('{quoted_version}', '{quoted_time}');\n"
+                    "COMMIT;"
+                )
+                applied.append(version)
 
     return applied
 
