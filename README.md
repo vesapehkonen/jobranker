@@ -73,7 +73,9 @@ Edit `.env` and add your OpenAI API key:
 
 ```env
 OPENAI_API_KEY=your-api-key
-OPENAI_MODEL=gpt-5.4-mini
+OPENAI_JOB_EXTRACT_MODEL=gpt-5.4-nano
+OPENAI_JOB_RANK_MODEL=gpt-5.4-mini
+OPENAI_RESUME_EXTRACT_MODEL=gpt-5.4-mini
 ```
 
 ---
@@ -165,7 +167,7 @@ python worker.py
 jobranker/
 ├── app.py
 ├── worker.py
-├── generate_report.py
+├── report_data.py
 ├── setup.sh
 ├── start.sh
 ├── requirements.txt
