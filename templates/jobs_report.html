@@ -14,57 +14,82 @@
         </div>
     </div>
 
-    <div class="report-controls">
-        <input id="job-search" type="search" placeholder="Search title, company, skills, requirements, or notes">
-        <select id="score-filter" aria-label="Minimum score">
-            <option value="">Any score</option>
-            <option value="50">Score ≥ 50</option>
-            <option value="65">Score ≥ 65</option>
-            <option value="80">Score ≥ 80</option>
-        </select>
-        <select id="sort-order" aria-label="Sort jobs">
-            <option value="newest">Newest</option>
-            <option value="updated">Recently updated</option>
-            <option value="score_desc">Highest score</option>
-            <option value="score_asc">Lowest score</option>
-            <option value="company">Company</option>
-            <option value="title">Title</option>
-            <option value="oldest">Oldest</option>
-        </select>
-        <select id="page-size" aria-label="Jobs per page">
-            <option value="25">25 per page</option>
-            <option value="50">50 per page</option>
-            <option value="100">100 per page</option>
-        </select>
-    </div>
+    <section class="toolbar" aria-label="Job report controls">
+        <div class="toolbar-primary">
+            <label class="search-field">
+                <span>Search</span>
+                <input id="job-search" type="search" placeholder="Title, company, skills, requirements, or notes">
+            </label>
+            <div class="toolbar-selects">
+                <label class="control-field">
+                    <span>Minimum score</span>
+                    <select id="score-filter">
+                        <option value="">Any score</option>
+                        <option value="90">Score ≥ 90</option>
+                        <option value="80">Score ≥ 80</option>
+                        <option value="70">Score ≥ 70</option>
+                        <option value="60">Score ≥ 60</option>
+                        <option value="50">Score ≥ 50</option>
+                    </select>
+                </label>
+                <label class="control-field">
+                    <span>Sort by</span>
+                    <select id="sort-order">
+                        <option value="newest">Newest</option>
+                        <option value="updated">Recently updated</option>
+                        <option value="score_desc">Highest score</option>
+                        <option value="score_asc">Lowest score</option>
+                        <option value="company">Company</option>
+                        <option value="title">Title</option>
+                        <option value="oldest">Oldest</option>
+                    </select>
+                </label>
+                <label class="control-field">
+                    <span>Rows</span>
+                    <select id="page-size">
+                        <option value="25">25 per page</option>
+                        <option value="50">50 per page</option>
+                        <option value="100">100 per page</option>
+                    </select>
+                </label>
+            </div>
+        </div>
 
-    <div class="filters">
-        <button class="filter-button" data-filter="new" onclick="filterStatus('new')">New</button>
-        <button class="filter-button" data-filter="interested" onclick="filterStatus('interested')">Interested</button>
-        <button class="filter-button" data-filter="applied" onclick="filterStatus('applied')">Applied</button>
-        <button class="filter-button" data-filter="recruiter_contact" onclick="filterStatus('recruiter_contact')">Recruiter</button>
-        <button class="filter-button" data-filter="interview" onclick="filterStatus('interview')">Interview</button>
-        <button class="filter-button" data-filter="skipped" onclick="filterStatus('skipped')">Skipped</button>
-        <button class="filter-button" data-filter="rejected" onclick="filterStatus('rejected')">Rejected</button>
-        <button class="filter-button" data-filter="archived" onclick="filterStatus('archived')">Archived</button>
-        <button class="filter-button" data-filter="all" onclick="filterStatus('all')">All</button>
-    </div>
+        <div class="status-filter-row">
+            <span class="toolbar-label">Status</span>
+            <div class="filters">
+                <button class="filter-button" data-filter="new" onclick="filterStatus('new')">New</button>
+                <button class="filter-button" data-filter="interested" onclick="filterStatus('interested')">Interested</button>
+                <button class="filter-button" data-filter="applied" onclick="filterStatus('applied')">Applied</button>
+                <button class="filter-button" data-filter="recruiter_contact" onclick="filterStatus('recruiter_contact')">Recruiter</button>
+                <button class="filter-button" data-filter="interview" onclick="filterStatus('interview')">Interview</button>
+                <button class="filter-button" data-filter="skipped" onclick="filterStatus('skipped')">Skipped</button>
+                <button class="filter-button" data-filter="rejected" onclick="filterStatus('rejected')">Rejected</button>
+                <button class="filter-button" data-filter="archived" onclick="filterStatus('archived')">Archived</button>
+                <button class="filter-button" data-filter="all" onclick="filterStatus('all')">All</button>
+            </div>
+        </div>
+    </section>
 
     <div class="table-wrap">
         <table>
             <thead>
                 <tr>
                     <th>Score</th>
-                    <th>Resume</th>
                     <th>Status</th>
                     <th>Job</th>
+                    <th>Work &amp; compensation</th>
                     <th>Main Skill</th>
-                    <th>Location</th>
-                    <th>Processing</th>
                     <th>Actions</th>
                 </tr>
             </thead>
-            <tbody id="jobs-body"></tbody>
+            <tbody id="jobs-body" aria-live="polite" aria-busy="true">
+                <tr class="state-row">
+                    <td colspan="6">
+                        <div class="initial-loading-state">Loading jobs…</div>
+                    </td>
+                </tr>
+            </tbody>
         </table>
     </div>
     <div class="pagination">
@@ -75,6 +100,26 @@
             <button id="next-page" type="button">Next</button>
         </div>
     </div>
+
+    <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+    <aside
+        id="job-drawer"
+        class="job-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawer-title"
+        hidden
+    >
+        <header class="drawer-header">
+            <div class="drawer-heading">
+                <div id="drawer-eyebrow" class="drawer-eyebrow">Job details</div>
+                <h2 id="drawer-title">Loading…</h2>
+                <div id="drawer-subtitle" class="drawer-subtitle"></div>
+            </div>
+            <button id="close-drawer" type="button" aria-label="Close job details">Close</button>
+        </header>
+        <div id="drawer-content" class="drawer-content"></div>
+    </aside>
 
     <script id="report-config" type="application/json">{{ {"apiToken": api_token, "reportVersion": report_version or ""} | tojson }}</script>
     <script src="/static/jobs-report.js" defer></script>

@@ -30,7 +30,13 @@ class SQLiteReportTests(unittest.TestCase):
                     database_file=database_file,
                 )
                 ranked = {
-                    "job": {"title": title, "company": company},
+                    "job": {
+                        "title": title,
+                        "company": company,
+                        "workplace_type": "remote",
+                        "employment_type": "full-time",
+                        "salary_range": "$100k-$120k",
+                    },
                     "recommended_profile": "backend",
                     "ranking": {
                         "overall_fit_score": score,
@@ -55,6 +61,9 @@ class SQLiteReportTests(unittest.TestCase):
             self.assertEqual(2, result["total_items"])
             self.assertEqual(2, result["total_pages"])
             self.assertEqual("job-a", result["items"][0]["job_uid"])
+            self.assertEqual("remote", result["items"][0]["workplace_type"])
+            self.assertEqual("full-time", result["items"][0]["employment_type"])
+            self.assertEqual("$100k-$120k", result["items"][0]["salary_range"])
             self.assertNotIn("search_text", result["items"][0])
 
     def test_pending_and_completed_jobs_are_built_from_sqlite(self) -> None:
@@ -86,6 +95,13 @@ class SQLiteReportTests(unittest.TestCase):
                     "ranking": {
                         "overall_fit_score": 88,
                         "recommendation": "strong",
+                        "scores": {
+                            "technical_skill_fit": 92,
+                            "role_experience_fit": 84,
+                            "domain_fit": 78,
+                            "seniority_fit": 88,
+                            "resume_evidence_strength": 85,
+                        },
                         "matched_strengths": ["Python"],
                     },
                 }
@@ -105,6 +121,16 @@ class SQLiteReportTests(unittest.TestCase):
             self.assertEqual(88, by_uid["done-job"]["score"])
             self.assertEqual("Example Co", by_uid["done-job"]["company"])
             self.assertEqual("backend", by_uid["done-job"]["recommended_profile"])
+            self.assertEqual(
+                {
+                    "technical_skill_fit": 92,
+                    "role_experience_fit": 84,
+                    "domain_fit": 78,
+                    "seniority_fit": 88,
+                    "resume_evidence_strength": 85,
+                },
+                by_uid["done-job"]["dimension_scores"],
+            )
 
 
 if __name__ == "__main__":

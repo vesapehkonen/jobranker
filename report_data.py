@@ -132,6 +132,7 @@ def read_ranked_jobs(job_uid: str | None = None) -> list[dict]:
             "created_at_ts": parse_timestamp(created_at),
             "recommended_profile": ranked_data.get("recommended_profile"),
             "profile_scores": ranked_data.get("profile_scores", {}),
+            "dimension_scores": ranking.get("scores", {}),
             "processing_status": row["processing_status"] or "",
             "processing_phase": row["processing_phase"] or "",
             "processing_error": row["processing_error"] or "",

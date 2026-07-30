@@ -84,11 +84,11 @@ def calculate_weighted_score(scores: dict) -> int:
 
 
 def recommendation_from_score(score: int) -> str:
-    if score >= 80:
+    if score >= 88:
         return "strong"
-    if score >= 65:
+    if score >= 70:
         return "good"
-    if score >= 45:
+    if score >= 50:
         return "weak"
     return "no"
 

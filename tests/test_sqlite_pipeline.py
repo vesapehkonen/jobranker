@@ -17,10 +17,16 @@ from database import (
     update_queue_phase,
 )
 from parse import parse_job
-from rank_job_ai import rank_job
+from rank_job_ai import rank_job, recommendation_from_score
 
 
 class SQLitePipelineTests(unittest.TestCase):
+    def test_recommendation_thresholds_match_report_colors(self) -> None:
+        self.assertEqual("strong", recommendation_from_score(88))
+        self.assertEqual("good", recommendation_from_score(70))
+        self.assertEqual("weak", recommendation_from_score(50))
+        self.assertEqual("no", recommendation_from_score(49))
+
     def test_capture_claim_artifacts_and_complete(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"

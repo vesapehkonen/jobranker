@@ -5,6 +5,10 @@ const API_TOKEN = reportConfig.apiToken;
 
 let reportLoadedVersion = reportConfig.reportVersion;
 let reportCheckTimer = null;
+let selectedJobUid = null;
+let detailRequestId = 0;
+let drawerTrigger = null;
+let jobsRequestId = 0;
 const savedStatus = localStorage.getItem("jobReportFilter");
 const jobState = {
     search: localStorage.getItem("jobReportSearch") || "",
@@ -23,16 +27,64 @@ function escapeHtml(value) {
     return element.innerHTML;
 }
 
+function compactText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function safeExternalUrl(value) {
+    try {
+        const url = new URL(value);
+        return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+    } catch {
+        return "";
+    }
+}
+
+function recommendationLabel(score) {
+    const numericScore = Number(score);
+    if (score == null || score === "" || !Number.isFinite(numericScore)) return "";
+    if (numericScore >= 88) return "strong";
+    if (numericScore >= 70) return "good";
+    if (numericScore >= 50) return "weak";
+    return "no match";
+}
+
+function scoreHtml(score) {
+    if (score == null || score === "") {
+        return `
+            <div class="score">—</div>
+            <div class="score-bar" aria-hidden="true"></div>
+        `;
+    }
+    const numericScore = Number(score);
+    if (!Number.isFinite(numericScore)) {
+        return `
+            <div class="score">—</div>
+            <div class="score-bar" aria-hidden="true"></div>
+        `;
+    }
+    const boundedScore = Math.max(0, Math.min(100, numericScore));
+    const scoreClass = boundedScore >= 88 ? "strong" :
+        boundedScore >= 70 ? "good" :
+        boundedScore >= 50 ? "fair" : "low";
+    return `
+        <div class="score">${escapeHtml(numericScore)}</div>
+        <div class="score-bar" role="img" aria-label="Fit score ${escapeHtml(numericScore)} out of 100">
+            <span class="score-bar-fill score-bar-${scoreClass}" style="width: ${boundedScore}%"></span>
+        </div>
+    `;
+}
+
 function authHeaders() {
     return { "Authorization": `Bearer ${API_TOKEN}` };
 }
 
 function processingBadge(job) {
     const status = job.processing_status || "";
-    if (!status) return '<span class="muted">—</span>';
+    if (!status || status === "done") return "";
     const css = status === "failed" ? "failed" :
         status === "processing" ? "active" :
-        status === "done" ? "done" : "pending";
+        "pending";
     const text = status === "processing" ? (job.processing_phase || status) : status;
     return `<span class="processing processing-${css}">${escapeHtml(text)}</span>`;
 }
@@ -49,20 +101,88 @@ function statusOptions(current) {
     ).join("");
 }
 
+function renderJobsLoading() {
+    const body = document.getElementById("jobs-body");
+    body.setAttribute("aria-busy", "true");
+    body.innerHTML = Array.from({ length: 5 }, (_, index) => `
+        <tr class="skeleton-row" aria-hidden="true">
+            <td><div class="skeleton-line ${index % 2 ? "short" : ""}"></div></td>
+            <td><div class="skeleton-line medium"></div></td>
+            <td><div class="skeleton-line"></div></td>
+            <td><div class="skeleton-line medium"></div></td>
+            <td><div class="skeleton-line short"></div></td>
+            <td><div class="skeleton-line medium"></div></td>
+        </tr>
+    `).join("");
+    document.getElementById("results-summary").textContent = "Loading jobs…";
+    document.getElementById("page-summary").textContent = "";
+    document.getElementById("previous-page").disabled = true;
+    document.getElementById("next-page").disabled = true;
+}
+
+function renderTableState(title, message, retry = false) {
+    const body = document.getElementById("jobs-body");
+    body.setAttribute("aria-busy", "false");
+    body.innerHTML = `
+        <tr class="state-row">
+            <td colspan="6">
+                <div class="table-state">
+                    <h2 class="table-state-title">${escapeHtml(title)}</h2>
+                    <p class="table-state-message">${escapeHtml(message)}</p>
+                    ${retry ? '<button type="button" onclick="loadJobs()">Try again</button>' : ""}
+                </div>
+            </td>
+        </tr>
+    `;
+    document.getElementById("page-summary").textContent = "";
+    document.getElementById("previous-page").disabled = true;
+    document.getElementById("next-page").disabled = true;
+}
+
+function emptyStateCopy() {
+    if (jobState.search || jobState.minimumScore) {
+        return [
+            "No jobs match these filters",
+            "Try changing the search text, lowering the minimum score, or selecting another status.",
+        ];
+    }
+    if (jobState.status === "new") {
+        return [
+            "No new jobs to review",
+            "Newly captured jobs will appear here after they enter the processing queue.",
+        ];
+    }
+    return [
+        "No jobs in this status",
+        "Choose another status or select All to review every captured job.",
+    ];
+}
+
 function renderJobs(data) {
     const body = document.getElementById("jobs-body");
     body.innerHTML = "";
+    body.setAttribute("aria-busy", "false");
+    if (!data.items.length) {
+        const [title, message] = emptyStateCopy();
+        renderTableState(title, message);
+    }
     data.items.forEach(job => {
         const uid = escapeHtml(job.job_uid);
+        const location = compactText(job.location) || "Location unavailable";
+        const workArrangement = compactText(
+            [job.workplace_type, job.employment_type].filter(Boolean).join(" · ")
+        ) || "Work arrangement unavailable";
+        const salary = compactText(job.salary_range) || "Salary unavailable";
         const row = document.createElement("tr");
         row.className = "job-row";
         row.dataset.status = job.status;
         row.innerHTML = `
-            <td><div class="score">${job.score ?? "—"}</div>
-                <div class="recommendation">${escapeHtml(job.recommendation || "")}</div></td>
-            <td>${job.recommended_profile
-                ? `<span class="resume-pill">${escapeHtml(job.recommended_profile)}</span>`
-                : '<span class="muted">—</span>'}</td>
+            <td><div class="score-cell">${scoreHtml(job.score)}
+                <div class="recommendation">${escapeHtml(recommendationLabel(job.score))}</div>
+                ${job.recommended_profile
+                    ? `<span class="resume-pill">${escapeHtml(job.recommended_profile)}</span>`
+                    : ""}
+            </div></td>
             <td><div class="status-cell">
                 <span class="status status-${escapeHtml(job.status)}">${escapeHtml(job.status)}</span>
                 <span class="local-time" data-time="${escapeHtml(job.status_updated_at || "")}"></span>
@@ -72,21 +192,20 @@ function renderJobs(data) {
                 <a class="job-title" href="${escapeHtml(job.url || "#")}" target="_blank">${escapeHtml(job.title || "Untitled job")}</a>
                 <div class="job-summary">${escapeHtml(job.short_summary || "")}</div>
                 <div class="muted">${escapeHtml(job.job_source || "")}${job.external_job_id ? ` · Job ID: ${escapeHtml(job.external_job_id)}` : ""}</div>
+                ${processingBadge(job)}
+            </div></td>
+            <td><div class="practical-details">
+                <strong class="practical-location" title="${escapeHtml(location)}">${escapeHtml(location)}</strong>
+                <span class="practical-meta" title="${escapeHtml(workArrangement)}">${escapeHtml(workArrangement)}</span>
+                <span class="practical-salary" title="${escapeHtml(salary)}">${escapeHtml(salary)}</span>
             </div></td>
             <td>${escapeHtml(job.main_skill || "")}</td>
-            <td>${escapeHtml(job.location || "")}</td>
-            <td>${processingBadge(job)}</td>
             <td><div class="actions">
-                <button type="button" onclick="toggleDetails('${uid}')">Details</button>
+                <button id="details-button-${uid}" type="button" onclick="openJobDetails('${uid}', this)">Details</button>
                 ${job.processing_status === "failed" ? `<button type="button" onclick="retryJob('${uid}')">Retry</button>` : ""}
                 <select onchange="changeStatus('${uid}', this)">${statusOptions(job.status)}</select>
             </div></td>`;
         body.appendChild(row);
-        const details = document.createElement("tr");
-        details.id = `details-${job.job_uid}`;
-        details.className = "details-row";
-        details.innerHTML = '<td colspan="8"><div class="details-card"><span class="muted">Loading details…</span></div></td>';
-        body.appendChild(details);
     });
     formatLocalTimes();
     document.getElementById("results-summary").textContent =
@@ -99,17 +218,41 @@ function renderJobs(data) {
 }
 
 async function loadJobs() {
+    const requestId = ++jobsRequestId;
+    renderJobsLoading();
     const params = new URLSearchParams({
         search: jobState.search, status: jobState.status, sort: jobState.sort,
         page: jobState.page, page_size: jobState.pageSize,
     });
     if (jobState.minimumScore) params.set("minimum_score", jobState.minimumScore);
-    const response = await fetch(`/jobs?${params}`, { headers: authHeaders() });
-    if (!response.ok) {
-        document.getElementById("results-summary").textContent = `Could not load jobs: HTTP ${response.status}`;
+    let response;
+    try {
+        response = await fetch(`/jobs?${params}`, { headers: authHeaders() });
+    } catch (error) {
+        if (requestId !== jobsRequestId) return;
+        renderTableState(
+            "Could not load jobs",
+            "The JobRanker API could not be reached. Check that the application is running.",
+            true,
+        );
+        document.getElementById("results-summary").textContent = "Could not load jobs";
+        console.error("Job list request failed", error);
         return;
     }
-    renderJobs(await response.json());
+    if (requestId !== jobsRequestId) return;
+    if (!response.ok) {
+        renderTableState(
+            "Could not load jobs",
+            `The API returned HTTP ${response.status}.`,
+            true,
+        );
+        document.getElementById("results-summary").textContent =
+            `Could not load jobs: HTTP ${response.status}`;
+        return;
+    }
+    const data = await response.json();
+    if (requestId !== jobsRequestId) return;
+    renderJobs(data);
 }
 
 async function changeStatus(jobUid, selectElement) {
@@ -157,54 +300,173 @@ function listHtml(items) {
         : '<p class="muted">None listed</p>';
 }
 
-async function toggleDetails(jobUid) {
-    const row = document.getElementById(`details-${jobUid}`);
-    if (!row) return;
-    if (row.style.display === "table-row") {
-        row.style.display = "none";
+function dimensionScoresHtml(scores) {
+    const dimensions = [
+        ["technical_skill_fit", "Technical"],
+        ["role_experience_fit", "Experience"],
+        ["domain_fit", "Domain"],
+        ["seniority_fit", "Seniority"],
+        ["resume_evidence_strength", "Evidence"],
+    ];
+    return dimensions.map(([key, label]) => `
+        <div class="dimension-score">
+            <div class="dimension-score-label">${label}</div>
+            <div class="dimension-score-value">${escapeHtml(scores?.[key] ?? "—")}</div>
+        </div>
+    `).join("");
+}
+
+async function openJobDetails(jobUid, trigger = null) {
+    const drawer = document.getElementById("job-drawer");
+    const backdrop = document.getElementById("drawer-backdrop");
+    const eyebrow = document.getElementById("drawer-eyebrow");
+    const title = document.getElementById("drawer-title");
+    const subtitle = document.getElementById("drawer-subtitle");
+    const content = document.getElementById("drawer-content");
+    selectedJobUid = jobUid;
+    drawerTrigger = trigger ||
+        document.getElementById(`details-button-${jobUid}`) ||
+        drawerTrigger;
+    const requestId = ++detailRequestId;
+
+    drawer.hidden = false;
+    backdrop.hidden = false;
+    document.body.classList.add("drawer-open");
+    eyebrow.textContent = "Job details";
+    title.textContent = "Loading…";
+    subtitle.textContent = "";
+    content.innerHTML = `<div class="drawer-loading" aria-label="Loading job details">
+        <div class="skeleton-line medium"></div>
+        <div class="skeleton-line"></div>
+        <div class="skeleton-line short"></div>
+        <div class="skeleton-line"></div>
+        <div class="skeleton-line medium"></div>
+    </div>`;
+    if (trigger) {
+        document.getElementById("close-drawer").focus();
+    }
+
+    let response;
+    try {
+        response = await fetch(`/jobs/${jobUid}`, { headers: authHeaders() });
+    } catch (error) {
+        if (requestId !== detailRequestId) return;
+        eyebrow.textContent = "Job details";
+        title.textContent = "Could not load job";
+        content.textContent = "Could not connect to the JobRanker API.";
+        console.error("Job detail request failed", error);
         return;
     }
-    row.style.display = "table-row";
-    if (row.dataset.loaded) return;
-    const response = await fetch(`/jobs/${jobUid}`, { headers: authHeaders() });
+    if (requestId !== detailRequestId) return;
     if (!response.ok) {
-        row.querySelector(".details-card").textContent = `Could not load details: HTTP ${response.status}`;
+        eyebrow.textContent = "Job details";
+        title.textContent = "Could not load job";
+        content.textContent = `Could not load details: HTTP ${response.status}`;
         return;
     }
     const job = await response.json();
-    const profileScores = Object.entries(job.profile_scores || {})
-        .map(([name, score]) => `<li><strong>${escapeHtml(name)}</strong>: ${score}</li>`).join("");
-    row.querySelector("td").innerHTML = `<div class="details-card">
-        <div class="details-top"><div>
-            <div class="details-title">${escapeHtml(job.company || "Unknown company")} — ${escapeHtml(job.title || "Untitled job")}</div>
-            <div class="details-subtitle">Internal UID: ${escapeHtml(job.job_uid)}${job.external_job_id ? ` · Job ID: ${escapeHtml(job.external_job_id)}` : ""}</div>
-        </div><div><div class="muted">Resume match scores</div>
-            ${profileScores ? `<ul class="profile-score-list">${profileScores}</ul>` : '<div class="muted">No profile scores</div>'}
-        </div></div>
+    if (requestId !== detailRequestId) return;
+    eyebrow.textContent = job.company || "Unknown company";
+    title.textContent = job.title || "Untitled job";
+    subtitle.textContent = [
+        compactText(job.location),
+        compactText(job.workplace_type),
+        compactText(job.employment_type),
+    ].filter(Boolean).join(" · ");
+    const externalUrl = safeExternalUrl(job.url);
+    const otherProfileScores = Object.entries(job.profile_scores || {})
+        .filter(([name]) => name !== job.recommended_profile)
+        .map(([name, score]) => `<li><strong>${escapeHtml(name)}</strong>: ${escapeHtml(score)}</li>`).join("");
+    content.innerHTML = `<div class="details-card">
+        <div class="drawer-overview">
+            <div class="fit-overview">
+                <div class="fit-overview-score">${escapeHtml(job.score ?? "—")}</div>
+                <div>
+                    <div class="fit-overview-label">${escapeHtml(recommendationLabel(job.score) || "Not ranked")}</div>
+                    ${job.recommended_profile ? `<span class="resume-pill">${escapeHtml(job.recommended_profile)}</span>` : ""}
+                </div>
+            </div>
+            ${externalUrl ? `<a class="primary-link" href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener noreferrer">Open job posting ↗</a>` : ""}
+        </div>
         <div class="details-grid">
             ${job.processing_error ? `<section class="detail-section full"><h3>Processing Error</h3><pre class="error-box">${escapeHtml(job.processing_error)}</pre></section>` : ""}
+            <section class="detail-section full"><h3>Notes</h3>
+                <div class="notes-editor">
+                    <textarea aria-label="Notes for ${escapeHtml(job.title || "job")}">${escapeHtml(job.notes || "")}</textarea>
+                    <div class="notes-actions">
+                        <button type="button" onclick="saveNotes('${escapeHtml(job.job_uid)}', this)">Save notes</button>
+                        <span class="notes-save-status" role="status"></span>
+                    </div>
+                </div>
+            </section>
+            <section class="detail-section full">
+                <h3>Fit breakdown</h3>
+                <div class="dimension-scores">${dimensionScoresHtml(job.dimension_scores || {})}</div>
+            </section>
+            ${otherProfileScores ? `<section class="detail-section full"><h3>Other resume scores</h3><ul class="profile-score-list">${otherProfileScores}</ul></section>` : ""}
             <section class="detail-section"><h3>Matched strengths</h3>${listHtml(job.matched_strengths)}</section>
             <section class="detail-section"><h3>Weak areas</h3>${listHtml(job.weak_areas)}</section>
-            <section class="detail-section"><h3>Interview risk</h3>${listHtml(job.interview_risk)}</section>
             <section class="detail-section"><h3>Requirements</h3>${listHtml(job.requirements)}</section>
             <section class="detail-section"><h3>Preferred requirements</h3>${listHtml(job.preferred_requirements)}</section>
+            <section class="detail-section"><h3>Interview risk</h3>${listHtml(job.interview_risk)}</section>
             <section class="detail-section"><h3>Technologies</h3>${listHtml(job.technologies)}</section>
             <section class="detail-section"><h3>Benefits</h3>${listHtml(job.benefits)}</section>
             <section class="detail-section"><h3>Job info</h3><div class="info-grid">
                 <div class="info-label">Source</div><div>${escapeHtml(job.job_source || "")}</div>
                 <div class="info-label">Job ID</div><div>${escapeHtml(job.external_job_id || "")}</div>
+                <div class="info-label">Internal UID</div><div>${escapeHtml(job.job_uid)}</div>
                 <div class="info-label">Workplace</div><div>${escapeHtml(job.workplace_type || "")}</div>
                 <div class="info-label">Employment</div><div>${escapeHtml(job.employment_type || "")}</div>
                 <div class="info-label">Education</div><div>${escapeHtml(job.education_requirement || "")}</div>
                 <div class="info-label">Salary</div><div>${escapeHtml(job.salary_range || "")}</div>
                 <div class="info-label">Created</div><div class="local-time" data-time="${escapeHtml(job.created_at_raw || "")}"></div>
             </div></section>
-            <section class="detail-section full"><h3>Reasoning</h3><p>${escapeHtml(job.reasoning || "No ranking reasoning available.")}</p></section>
             <section class="detail-section full"><h3>Summary</h3><p>${escapeHtml(job.summary || job.short_summary || "No summary available.")}</p></section>
+            <section class="detail-section full"><h3>Ranking reasoning</h3><p>${escapeHtml(job.reasoning || "No ranking reasoning available.")}</p></section>
             ${job.description ? `<section class="detail-section full"><h3>Description</h3><p>${escapeHtml(job.description)}</p></section>` : ""}
         </div></div>`;
-    row.dataset.loaded = "true";
     formatLocalTimes();
+}
+
+function closeJobDetails() {
+    document.getElementById("job-drawer").hidden = true;
+    document.getElementById("drawer-backdrop").hidden = true;
+    document.body.classList.remove("drawer-open");
+    selectedJobUid = null;
+    detailRequestId += 1;
+    if (drawerTrigger && document.contains(drawerTrigger)) {
+        drawerTrigger.focus();
+    }
+    drawerTrigger = null;
+}
+
+async function saveNotes(jobUid, button) {
+    const editor = button.closest(".notes-editor");
+    const textarea = editor.querySelector("textarea");
+    const status = editor.querySelector(".notes-save-status");
+    button.disabled = true;
+    status.textContent = "Saving…";
+
+    try {
+        const response = await fetch(`/jobs/${jobUid}/notes`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${API_TOKEN}`,
+            },
+            body: JSON.stringify({ notes: textarea.value }),
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`HTTP ${response.status}: ${text}`);
+        }
+        status.textContent = "Saved";
+    } catch (error) {
+        status.textContent = "Could not save notes";
+        console.error("Notes update failed", error);
+    } finally {
+        button.disabled = false;
+    }
 }
 
 function filterStatus(mode) {
@@ -244,8 +506,12 @@ async function checkReportUpdate() {
             document.getElementById("total-jobs").textContent = `Total jobs: ${data.total_jobs}`;
         }
         if (data.exists && data.version !== reportLoadedVersion) {
+            const openJobUid = selectedJobUid;
             reportLoadedVersion = data.version;
-            loadJobs();
+            await loadJobs();
+            if (openJobUid) {
+                openJobDetails(openJobUid);
+            }
         }
     } catch (error) {
         console.error("Report status check failed", error);
@@ -319,6 +585,13 @@ document.getElementById("next-page").addEventListener("click", () => {
     if (jobState.page < jobState.totalPages) {
         jobState.page += 1;
         loadJobs();
+    }
+});
+document.getElementById("close-drawer").addEventListener("click", closeJobDetails);
+document.getElementById("drawer-backdrop").addEventListener("click", closeJobDetails);
+document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && selectedJobUid) {
+        closeJobDetails();
     }
 });
 
