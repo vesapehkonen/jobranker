@@ -550,6 +550,32 @@ th:nth-child(6), td:nth-child(6) { width: 190px; }
     outline-offset: 2px;
 }
 
+.posting-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.secondary-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 12px;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.secondary-link:hover { background: var(--hover); }
+
+.secondary-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
 .detail-section {
     background: var(--hover);
     border: 1px solid var(--border);

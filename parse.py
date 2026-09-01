@@ -10,6 +10,7 @@ START_MARKERS = [
 END_MARKERS = [
     "Set alert for similar jobs", "Similar jobs", "More jobs", "About the company",
     "Recommended jobs", "People also viewed", "Looking for talent?",
+    "Explore other jobs", "Report job", "Hiring Lab", "Capturing job",
 ]
 HEADER_LOOKBACK_LINES = 40
 

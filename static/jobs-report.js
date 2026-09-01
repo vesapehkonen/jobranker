@@ -374,6 +374,7 @@ async function openJobDetails(jobUid, trigger = null) {
         compactText(job.employment_type),
     ].filter(Boolean).join(" · ");
     const externalUrl = safeExternalUrl(job.url);
+    const savedDescriptionUrl = `/jobs/${encodeURIComponent(job.job_uid)}/description`;
     const otherProfileScores = Object.entries(job.profile_scores || {})
         .filter(([name]) => name !== job.recommended_profile)
         .map(([name, score]) => `<li><strong>${escapeHtml(name)}</strong>: ${escapeHtml(score)}</li>`).join("");
@@ -386,7 +387,10 @@ async function openJobDetails(jobUid, trigger = null) {
                     ${job.recommended_profile ? `<span class="resume-pill">${escapeHtml(job.recommended_profile)}</span>` : ""}
                 </div>
             </div>
-            ${externalUrl ? `<a class="primary-link" href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener noreferrer">Open job posting ↗</a>` : ""}
+            <div class="posting-links">
+                <a class="secondary-link" href="${escapeHtml(savedDescriptionUrl)}" target="_blank" rel="noopener noreferrer">Saved job description ↗</a>
+                ${externalUrl ? `<a class="primary-link" href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener noreferrer">Open job posting ↗</a>` : ""}
+            </div>
         </div>
         <div class="details-grid">
             ${job.processing_error ? `<section class="detail-section full"><h3>Processing Error</h3><pre class="error-box">${escapeHtml(job.processing_error)}</pre></section>` : ""}

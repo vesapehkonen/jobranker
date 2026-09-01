@@ -21,6 +21,7 @@ from database import (
     update_application_status,
     update_job_notes as update_notes_in_database,
 )
+from description_format import format_description
 from report_data import read_job
 
 API_TOKEN = os.getenv("API_TOKEN")
@@ -179,6 +180,23 @@ def get_job_detail(
         key: value for key, value in job.items()
         if not key.endswith("_html")
     }
+
+
+@app.get("/jobs/{job_uid}/description")
+def saved_job_description(request: Request, job_uid: str):
+    job = read_job(job_uid)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_uid}")
+    return templates.TemplateResponse(
+        request=request,
+        name="job_description.html",
+        context={
+            "job": job,
+            "description_blocks": format_description(
+                job.get("cleaned_description_text") or job.get("description")
+            ),
+        },
+    )
 
 
 @app.get("/report")

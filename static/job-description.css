@@ -1,0 +1,64 @@
+:root {
+    color-scheme: light dark;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f4f6f8;
+    color: #17202a;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; }
+
+.saved-job {
+    width: min(860px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 24px 0 64px;
+}
+
+.saved-job-nav {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+    color: #667085;
+    font-size: 14px;
+}
+
+.saved-job-nav a { color: #175cd3; font-weight: 650; text-decoration: none; }
+.saved-job-nav a:hover { text-decoration: underline; }
+
+.job-posting {
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid #dfe3e8;
+    border-radius: 14px;
+    box-shadow: 0 8px 28px rgb(16 24 40 / 8%);
+}
+
+.job-heading { padding: 36px 40px 28px; border-bottom: 1px solid #e8eaed; }
+.company { margin-bottom: 8px; color: #475467; font-weight: 650; }
+h1 { margin: 0; font-size: clamp(28px, 5vw, 40px); line-height: 1.15; }
+.metadata { margin-top: 14px; color: #667085; line-height: 1.5; }
+.description { padding: 32px 40px 44px; }
+.description h2 { margin: 0 0 22px; font-size: 22px; }
+.description-content { overflow-wrap: anywhere; line-height: 1.65; }
+.description-content h3 { margin: 30px 0 12px; font-size: 18px; line-height: 1.35; }
+.description-content h3:first-child { margin-top: 0; }
+.description-content p { margin: 0 0 16px; }
+.description-content ul { margin: 0 0 20px; padding-left: 24px; }
+.description-content li { margin-bottom: 10px; padding-left: 4px; }
+.unavailable { color: #667085; }
+
+@media (max-width: 600px) {
+    .saved-job { width: min(100% - 20px, 860px); padding-top: 12px; }
+    .saved-job-nav { align-items: flex-start; flex-direction: column; }
+    .job-heading, .description { padding: 24px 20px; }
+}
+
+@media (prefers-color-scheme: dark) {
+    :root { background: #101828; color: #f2f4f7; }
+    .job-posting { background: #1d2939; border-color: #344054; }
+    .job-heading { border-color: #344054; }
+    .company, .metadata, .saved-job-nav, .unavailable { color: #98a2b3; }
+    .saved-job-nav a { color: #84adff; }
+}

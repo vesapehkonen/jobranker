@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ job.title or "Saved job description" }}</title>
+    <link rel="icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/job-description.css">
+</head>
+<body>
+    <main class="saved-job">
+        <nav class="saved-job-nav" aria-label="Job description navigation">
+            <a href="/report">← Back to report</a>
+            <span>Saved when this job was captured</span>
+        </nav>
+
+        <article class="job-posting">
+            <header class="job-heading">
+                {% if job.company %}<div class="company">{{ job.company }}</div>{% endif %}
+                <h1>{{ job.title or "Untitled job" }}</h1>
+                {% set metadata = [job.location, job.workplace_type, job.employment_type, job.salary_range] | select | list %}
+                {% if metadata %}<div class="metadata">{{ metadata | join(" · ") }}</div>{% endif %}
+            </header>
+
+            <section class="description" aria-labelledby="description-heading">
+                <h2 id="description-heading">Job description</h2>
+                {% if description_blocks %}
+                    <div class="description-content">
+                    {% for block in description_blocks %}
+                        {% if block.type == "heading" %}
+                            <h3>{{ block.text }}</h3>
+                        {% elif block.type == "list" %}
+                            <ul>{% for item in block['items'] %}<li>{{ item }}</li>{% endfor %}</ul>
+                        {% else %}
+                            <p>{{ block.text }}</p>
+                        {% endif %}
+                    {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="unavailable">No saved job description is available for this capture.</p>
+                {% endif %}
+            </section>
+        </article>
+    </main>
+</body>
+</html>
