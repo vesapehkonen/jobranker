@@ -168,6 +168,7 @@ function renderJobs(data) {
     }
     data.items.forEach(job => {
         const uid = escapeHtml(job.job_uid);
+        const externalUrl = safeExternalUrl(job.url);
         const location = compactText(job.location) || "Location unavailable";
         const workArrangement = compactText(
             [job.workplace_type, job.employment_type].filter(Boolean).join(" · ")
@@ -189,7 +190,9 @@ function renderJobs(data) {
             </div></td>
             <td><div class="job-main">
                 <div class="company">${escapeHtml(job.company || "Unknown company")}</div>
-                <a class="job-title" href="${escapeHtml(job.url || "#")}" target="_blank">${escapeHtml(job.title || "Untitled job")}</a>
+                ${externalUrl
+                    ? `<a class="job-title" href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(job.title || "Untitled job")}</a>`
+                    : `<span class="job-title job-title-static">${escapeHtml(job.title || "Untitled job")}</span>`}
                 <div class="job-summary">${escapeHtml(job.short_summary || "")}</div>
                 <div class="muted">${escapeHtml(job.job_source || "")}${job.external_job_id ? ` · Job ID: ${escapeHtml(job.external_job_id)}` : ""}</div>
                 ${processingBadge(job)}
@@ -390,6 +393,7 @@ async function openJobDetails(jobUid, trigger = null) {
             <div class="posting-links">
                 <a class="secondary-link" href="${escapeHtml(savedDescriptionUrl)}" target="_blank" rel="noopener noreferrer">Saved job description ↗</a>
                 ${externalUrl ? `<a class="primary-link" href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener noreferrer">Open job posting ↗</a>` : ""}
+                <button type="button" onclick="updateApplicationLink('${escapeHtml(job.job_uid)}', this)">${externalUrl ? "Change link" : "Add application link"}</button>
             </div>
         </div>
         <div class="details-grid">
@@ -417,6 +421,8 @@ async function openJobDetails(jobUid, trigger = null) {
             <section class="detail-section"><h3>Benefits</h3>${listHtml(job.benefits)}</section>
             <section class="detail-section"><h3>Job info</h3><div class="info-grid">
                 <div class="info-label">Source</div><div>${escapeHtml(job.job_source || "")}</div>
+                ${job.recruiter_name ? `<div class="info-label">Recruiter</div><div>${escapeHtml(job.recruiter_name)}</div>` : ""}
+                ${job.recruiter_email ? `<div class="info-label">Recruiter email</div><div>${escapeHtml(job.recruiter_email)}</div>` : ""}
                 <div class="info-label">Job ID</div><div>${escapeHtml(job.external_job_id || "")}</div>
                 <div class="info-label">Internal UID</div><div>${escapeHtml(job.job_uid)}</div>
                 <div class="info-label">Workplace</div><div>${escapeHtml(job.workplace_type || "")}</div>
@@ -428,6 +434,10 @@ async function openJobDetails(jobUid, trigger = null) {
             <section class="detail-section full"><h3>Summary</h3><p>${escapeHtml(job.summary || job.short_summary || "No summary available.")}</p></section>
             <section class="detail-section full"><h3>Ranking reasoning</h3><p>${escapeHtml(job.reasoning || "No ranking reasoning available.")}</p></section>
             ${job.description ? `<section class="detail-section full"><h3>Description</h3><p>${escapeHtml(job.description)}</p></section>` : ""}
+            <section class="detail-section full danger-zone">
+                <div><h3>Delete job</h3><p>Permanently remove this job and all of its saved data.</p></div>
+                <button class="danger-button" type="button" onclick="deleteJob('${escapeHtml(job.job_uid)}', this)">Delete job</button>
+            </section>
         </div></div>`;
     formatLocalTimes();
 }
@@ -470,6 +480,104 @@ async function saveNotes(jobUid, button) {
         console.error("Notes update failed", error);
     } finally {
         button.disabled = false;
+    }
+}
+
+async function updateApplicationLink(jobUid, button) {
+    const currentUrl = button.closest(".posting-links").querySelector(".primary-link")?.href || "";
+    const applicationUrl = prompt(
+        "Application or job-posting URL (leave empty to remove it):",
+        currentUrl || "",
+    );
+    if (applicationUrl === null) return;
+    try {
+        const response = await fetch(`/jobs/${jobUid}/application-link`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${API_TOKEN}`,
+            },
+            body: JSON.stringify({ application_url: applicationUrl.trim() }),
+        });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.detail || `HTTP ${response.status}`);
+        }
+        await loadJobs();
+        await openJobDetails(jobUid);
+    } catch (error) {
+        alert(`Could not update application link: ${error.message}`);
+    }
+}
+
+async function deleteJob(jobUid, button) {
+    const title = document.getElementById("drawer-title").textContent || "this job";
+    if (!confirm(`Permanently delete “${title}”?\n\nThis cannot be undone.`)) return;
+    button.disabled = true;
+    button.textContent = "Deleting…";
+    try {
+        const response = await fetch(`/jobs/${jobUid}/delete`, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${API_TOKEN}` },
+        });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.detail || `HTTP ${response.status}`);
+        }
+        closeJobDetails();
+        if (jobState.page > 1) jobState.page -= 1;
+        await loadJobs();
+    } catch (error) {
+        button.disabled = false;
+        button.textContent = "Delete job";
+        alert(`Could not delete job: ${error.message}`);
+    }
+}
+
+function openManualJobDialog() {
+    document.getElementById("manual-job-error").textContent = "";
+    document.getElementById("manual-job-dialog").showModal();
+    document.querySelector('#manual-job-form textarea[name="text"]').focus();
+}
+
+function closeManualJobDialog() {
+    document.getElementById("manual-job-dialog").close();
+}
+
+async function submitManualJob(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = document.getElementById("submit-manual-job");
+    const error = document.getElementById("manual-job-error");
+    const values = Object.fromEntries(new FormData(form).entries());
+    error.textContent = "";
+    button.disabled = true;
+    button.textContent = "Adding…";
+    try {
+        const response = await fetch("/jobs/manual", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${API_TOKEN}`,
+            },
+            body: JSON.stringify(values),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+        form.reset();
+        closeManualJobDialog();
+        jobState.status = "new";
+        jobState.page = 1;
+        localStorage.setItem("jobReportFilter", "new");
+        document.querySelectorAll(".filter-button").forEach(item =>
+            item.classList.toggle("active", item.dataset.filter === "new")
+        );
+        await loadJobs();
+    } catch (submitError) {
+        error.textContent = `Could not add job: ${submitError.message}`;
+    } finally {
+        button.disabled = false;
+        button.textContent = "Add and rank job";
     }
 }
 
@@ -593,6 +701,10 @@ document.getElementById("next-page").addEventListener("click", () => {
 });
 document.getElementById("close-drawer").addEventListener("click", closeJobDetails);
 document.getElementById("drawer-backdrop").addEventListener("click", closeJobDetails);
+document.getElementById("open-manual-job").addEventListener("click", openManualJobDialog);
+document.getElementById("close-manual-job").addEventListener("click", closeManualJobDialog);
+document.getElementById("cancel-manual-job").addEventListener("click", closeManualJobDialog);
+document.getElementById("manual-job-form").addEventListener("submit", submitManualJob);
 document.addEventListener("keydown", event => {
     if (event.key === "Escape" && selectedJobUid) {
         closeJobDetails();

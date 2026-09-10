@@ -1,7 +1,9 @@
 import hashlib
 import os
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from database import (
     capture_job_record,
+    delete_job,
     initialize_database,
     latest_queue_item,
     list_job_summaries,
@@ -19,6 +22,7 @@ from database import (
     report_version,
     retry_failed_queue_item,
     update_application_status,
+    update_job_application_url,
     update_job_notes as update_notes_in_database,
 )
 from description_format import format_description
@@ -56,6 +60,16 @@ def build_job_uid(payload: dict[str, Any]) -> str:
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
+def normalized_web_url(value: Any) -> str | None:
+    url = str(value or "").strip()
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="Application URL must use http or https")
+    return url
+
+
 def verify_api_token(authorization: str | None = Header(default=None)) -> None:
     if not API_TOKEN:
         raise RuntimeError("API_TOKEN environment variable is not set")
@@ -91,6 +105,62 @@ def capture_job(payload: dict[str, Any], _: None = Depends(verify_api_token)) ->
         "message": "Job captured and queued for processing.",
         "report_url": "http://127.0.0.1:8000/report",
     })
+
+
+@app.post("/jobs/manual")
+def add_manual_job(
+    payload: dict[str, Any], _: None = Depends(verify_api_token)
+) -> JSONResponse:
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Job description is required")
+    if len(text) > 500_000:
+        raise HTTPException(status_code=400, detail="Job description is too large")
+
+    application_url = normalized_web_url(payload.get("application_url"))
+    job_uid = uuid.uuid4().hex[:16]
+    raw = {
+        "manual": True,
+        "text": text,
+        "title": str(payload.get("title") or "").strip() or "Manually added job",
+        "company": str(payload.get("company") or "").strip(),
+        "source": str(payload.get("source") or "Recruiter").strip() or "Recruiter",
+        "recruiter_name": str(payload.get("recruiter_name") or "").strip(),
+        "recruiter_email": str(payload.get("recruiter_email") or "").strip(),
+        "application_url": application_url,
+        "url": application_url,
+    }
+    _, queue_id = capture_job_record(job_uid, raw)
+    notes = str(payload.get("notes") or "").strip()
+    if notes:
+        update_notes_in_database(job_uid, notes)
+    return JSONResponse({
+        "status": "queued",
+        "job_uid": job_uid,
+        "queue_id": queue_id,
+        "message": "Manual job added and queued for processing.",
+    })
+
+
+@app.post("/jobs/{job_uid}/application-link")
+def set_application_link(
+    job_uid: str,
+    payload: dict[str, Any],
+    _: None = Depends(verify_api_token),
+) -> JSONResponse:
+    application_url = normalized_web_url(payload.get("application_url"))
+    if not update_job_application_url(job_uid, application_url):
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_uid}")
+    return JSONResponse({
+        "status": "ok", "job_uid": job_uid, "application_url": application_url,
+    })
+
+
+@app.post("/jobs/{job_uid}/delete")
+def remove_job(job_uid: str, _: None = Depends(verify_api_token)) -> JSONResponse:
+    if not delete_job(job_uid):
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_uid}")
+    return JSONResponse({"status": "deleted", "job_uid": job_uid})
 
 
 @app.post("/jobs/{job_uid}/status")

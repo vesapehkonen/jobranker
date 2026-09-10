@@ -272,6 +272,47 @@ def update_job_notes(
     return dict(row)
 
 
+def update_job_application_url(
+    job_uid: str,
+    application_url: str | None,
+    *,
+    database_file: Path | str = DEFAULT_DATABASE_FILE,
+) -> bool:
+    """Set a user-supplied URL while retaining it with the raw capture."""
+    now = utc_now()
+    with connect(database_file) as db:
+        row = db.execute(
+            "SELECT raw_json FROM job_artifacts WHERE job_uid = ?", (job_uid,)
+        ).fetchone()
+        if row is None:
+            return False
+        raw = json.loads(row["raw_json"] or "{}")
+        raw["application_url"] = application_url
+        db.execute(
+            "UPDATE jobs SET original_url = ?, updated_at = ? WHERE job_uid = ?",
+            (application_url, now, job_uid),
+        )
+        db.execute(
+            """
+            UPDATE job_artifacts SET raw_json = ?, raw_updated_at = ?
+            WHERE job_uid = ?
+            """,
+            (json.dumps(raw, ensure_ascii=False), now, job_uid),
+        )
+    return True
+
+
+def delete_job(
+    job_uid: str,
+    *,
+    database_file: Path | str = DEFAULT_DATABASE_FILE,
+) -> bool:
+    """Permanently delete a job and all rows that cascade from it."""
+    with connect(database_file) as db:
+        cursor = db.execute("DELETE FROM jobs WHERE job_uid = ?", (job_uid,))
+    return cursor.rowcount == 1
+
+
 def _decode_json(value: str | None) -> Any:
     return json.loads(value) if value else None
 
@@ -297,11 +338,14 @@ def capture_job_record(
         db.execute(
             """
             INSERT INTO jobs (
-                job_uid, original_url, page_title, application_status,
+                job_uid, original_url, page_title, source, application_status,
                 notes, created_at, updated_at
-            ) VALUES (?, ?, ?, 'new', '', ?, ?)
+            ) VALUES (?, ?, ?, ?, 'new', '', ?, ?)
             """,
-            (job_uid, payload.get("url"), payload.get("title"), now, now),
+            (
+                job_uid, payload.get("url"), payload.get("title"),
+                payload.get("source"), now, now,
+            ),
         )
         db.execute(
             """
@@ -454,7 +498,8 @@ def save_job_artifact(
         if artifact == "structured":
             db.execute(
                 """
-                UPDATE jobs SET source = ?, external_job_id = ?,
+                UPDATE jobs SET source = COALESCE(?, source),
+                    external_job_id = COALESCE(?, external_job_id),
                     original_url = COALESCE(?, original_url),
                     page_title = COALESCE(?, page_title), updated_at = ?
                 WHERE job_uid = ?
@@ -589,12 +634,16 @@ def list_job_summaries(
                j.notes, j.created_at, j.updated_at,
                COALESCE(j.status_updated_at, j.updated_at) AS status_updated_at,
                COALESCE(json_extract(a.structured_json,'$.company'),
-                        json_extract(a.ranked_json,'$.job.company')) AS company,
+                        json_extract(a.ranked_json,'$.job.company'),
+                        json_extract(a.raw_json,'$.company')) AS company,
                COALESCE(json_extract(a.structured_json,'$.title'),
                         json_extract(a.ranked_json,'$.job.title'),
                         json_extract(a.raw_json,'$.title'), j.page_title, '') AS title,
-               COALESCE(json_extract(a.structured_json,'$.job_url'),
-                        json_extract(a.raw_json,'$.url'), j.original_url, '#') AS url,
+               CASE WHEN json_type(a.raw_json,'$.application_url') IS NOT NULL
+                    THEN COALESCE(json_extract(a.raw_json,'$.application_url'), '')
+                    ELSE COALESCE(json_extract(a.structured_json,'$.job_url'),
+                                  json_extract(a.raw_json,'$.url'), j.original_url, '#')
+               END AS url,
                json_extract(a.structured_json,'$.location') AS location,
                COALESCE(json_extract(a.structured_json,'$.workplace_type'),
                         json_extract(a.ranked_json,'$.job.workplace_type')) AS workplace_type,

@@ -88,7 +88,10 @@ def read_ranked_jobs(job_uid: str | None = None) -> list[dict]:
         created_at = row["created_at"] or ""
         status_updated_at = row["status_updated_at"] or row["updated_at"] or ""
         title = job.get("title") or job.get("page_title") or row["page_title"] or ""
-        url = job.get("job_url") or job.get("url") or row["original_url"] or "#"
+        if "application_url" in raw_job:
+            url = raw_job.get("application_url") or ""
+        else:
+            url = job.get("job_url") or job.get("url") or row["original_url"] or ""
 
         jobs.append({
             "job_uid": row["job_uid"],
@@ -127,6 +130,8 @@ def read_ranked_jobs(job_uid: str | None = None) -> list[dict]:
             "benefits_html": html_list(benefits),
             "external_job_id": job.get("job_id") or row["external_job_id"],
             "job_source": job.get("job_source") or row["source"],
+            "recruiter_name": job.get("recruiter_name"),
+            "recruiter_email": job.get("recruiter_email"),
             "cleaned_description_text": cleaned_job.get("description_text"),
             "created_at": format_timestamp(created_at),
             "created_at_ts": parse_timestamp(created_at),

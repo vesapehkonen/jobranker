@@ -12,6 +12,7 @@
             <h1>Job Ranking Report</h1>
             <div id="total-jobs" class="summary">Total jobs: {{ total_jobs }}</div>
         </div>
+        <button id="open-manual-job" class="add-job-button" type="button">Add job manually</button>
     </div>
 
     <section class="toolbar" aria-label="Job report controls">
@@ -100,6 +101,46 @@
             <button id="next-page" type="button">Next</button>
         </div>
     </div>
+
+    <dialog id="manual-job-dialog" class="manual-job-dialog" aria-labelledby="manual-job-title">
+        <form id="manual-job-form">
+            <header class="dialog-header">
+                <div>
+                    <h2 id="manual-job-title">Add job manually</h2>
+                    <p>Paste a recruiter’s job description. Only the description is required.</p>
+                </div>
+                <button id="close-manual-job" class="dialog-close" type="button" aria-label="Close">×</button>
+            </header>
+            <div class="manual-form-grid">
+                <label class="full-field">Job description <span aria-hidden="true">*</span>
+                    <textarea name="text" rows="14" required placeholder="Paste the complete job description here"></textarea>
+                </label>
+                <label>Job title
+                    <input name="title" type="text" placeholder="Optional — extracted automatically">
+                </label>
+                <label>Company
+                    <input name="company" type="text" placeholder="Optional">
+                </label>
+                <label>Recruiter name
+                    <input name="recruiter_name" type="text" placeholder="Optional">
+                </label>
+                <label>Recruiter email
+                    <input name="recruiter_email" type="email" placeholder="Optional">
+                </label>
+                <label class="full-field">Application or posting link
+                    <input name="application_url" type="url" placeholder="Optional — can be added later">
+                </label>
+                <label class="full-field">Notes
+                    <textarea name="notes" rows="3" placeholder="Email subject, submission instructions, or follow-up details"></textarea>
+                </label>
+            </div>
+            <div id="manual-job-error" class="form-error" role="alert"></div>
+            <footer class="dialog-actions">
+                <button id="cancel-manual-job" type="button">Cancel</button>
+                <button id="submit-manual-job" class="add-job-button" type="submit">Add and rank job</button>
+            </footer>
+        </form>
+    </dialog>
 
     <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
     <aside

@@ -135,6 +135,11 @@ Dashboard URL:
 http://127.0.0.1:8000/report
 ```
 
+Jobs received by email can be added from the dashboard with **Add job manually**.
+Paste the description and optionally include the title, company, recruiter details,
+notes, and an application URL. A URL is not required and can be added later from
+the job details drawer.
+
 ---
 
 # Browser Extension Setup
