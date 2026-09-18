@@ -1,0 +1,12 @@
+golden_records_applied.json
+output/
+results/
+*.local.json
+*.cleaned.txt
+*.comparison.json
+*.comparison.md
+selected_job_uids.json
+scores.csv
+summary.json
+technology_vs_ai.csv
+technology_vs_ai_summary.json
