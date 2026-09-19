@@ -56,6 +56,8 @@
             </div>
         </div>
 
+        <label class="filtered-toggle"><input id="show-filtered" type="checkbox"> Show filtered jobs</label>
+
         <div class="status-filter-row">
             <span class="toolbar-label">Status</span>
             <div class="filters">
@@ -67,6 +69,7 @@
                 <button class="filter-button" data-filter="skipped" onclick="filterStatus('skipped')">Skipped</button>
                 <button class="filter-button" data-filter="rejected" onclick="filterStatus('rejected')">Rejected</button>
                 <button class="filter-button" data-filter="archived" onclick="filterStatus('archived')">Archived</button>
+                <button class="filter-button" data-filter="experiment" onclick="filterStatus('experiment')">Experiment</button>
                 <button class="filter-button" data-filter="all" onclick="filterStatus('all')">All</button>
             </div>
         </div>

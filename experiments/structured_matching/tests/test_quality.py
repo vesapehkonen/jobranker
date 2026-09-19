@@ -29,6 +29,14 @@ class JobTextQualityTests(unittest.TestCase):
         )
         self.assertEqual("valid", result["status"])
 
+    def test_long_news_page_without_job_content_is_invalid(self):
+        text = "Latest news. Sports results, weather forecasts and city council updates. " * 240
+        result = validate_job_text(text)
+        self.assertGreater(result["character_count"], 15000)
+        self.assertEqual(0, result["content_signal_count"])
+        self.assertEqual("invalid", result["status"])
+        self.assertIn("missing_job_content", result["reasons"])
+
     def test_technology_confidence_uses_evidence_count(self) -> None:
         self.assertEqual("unknown", technology_confidence(0))
         self.assertEqual("low", technology_confidence(1))

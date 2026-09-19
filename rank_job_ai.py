@@ -5,7 +5,7 @@ from openai import OpenAI
 
 from config import JOB_RANK_MODEL
 from ai_costs import track_openai_response
-from database import initialize_database, load_enabled_profiles
+from database import DEFAULT_DATABASE_FILE, initialize_database, load_enabled_profiles
 
 
 WEIGHTS = {
@@ -102,9 +102,13 @@ def rank_profile(
     job: dict,
     *,
     job_uid: str | None = None,
+    operation: str = "job_rank",
+    model: str = JOB_RANK_MODEL,
+    track_usage: bool = True,
+    database_file: Path | str = DEFAULT_DATABASE_FILE,
 ) -> dict:
     response = client.responses.create(
-        model=JOB_RANK_MODEL,
+        model=model,
         input=[
             {
                 "role": "system",
@@ -139,16 +143,20 @@ def rank_profile(
             }
         },
     )
-    if getattr(response, "usage", None) is not None:
+    if track_usage and getattr(response, "usage", None) is not None:
         track_openai_response(
             response,
-            "job_rank",
+            operation,
             job_uid=job_uid,
             profile_name=profile_name,
+            database_file=database_file,
         )
 
     ranking = json.loads(response.output_text)
 
+    for score in [ranking.get("overall_fit_score"), *(ranking.get("scores", {}).get(key) for key in WEIGHTS)]:
+        if type(score) is not int or not 0 <= score <= 100:
+            raise ValueError("Ranking scores must be integers between 0 and 100")
     weighted_score = calculate_weighted_score(ranking["scores"])
     ranking["overall_fit_score"] = weighted_score
     ranking["recommendation"] = recommendation_from_score(weighted_score)

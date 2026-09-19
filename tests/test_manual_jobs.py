@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from app import add_manual_job, normalized_web_url, remove_job, set_application_link
+from app import add_manual_job, capture_job, normalized_web_url, remove_job, set_application_link
 from database import (
     capture_job_record,
     connect,
@@ -41,7 +41,24 @@ class ManualJobEndpointTests(unittest.TestCase):
         self.assertTrue(raw["manual"])
         self.assertIsNone(raw["application_url"])
         self.assertEqual("Recruiter", raw["source"])
+        self.assertEqual("new", capture.call_args.kwargs["application_status"])
         update_notes.assert_called_once_with(uid, "Reply by Friday")
+
+    def test_experiment_mode_marks_manual_capture(self) -> None:
+        with (
+            patch("app.EXPERIMENT_CAPTURE", True),
+            patch("app.capture_job_record", return_value=(None, 7)) as capture,
+        ):
+            add_manual_job({"text": "Backend job"}, None)
+        self.assertEqual("experiment", capture.call_args.kwargs["application_status"])
+
+    def test_experiment_mode_marks_browser_capture(self) -> None:
+        with (
+            patch("app.EXPERIMENT_CAPTURE", True),
+            patch("app.capture_job_record", return_value=(None, 8)) as capture,
+        ):
+            capture_job({"url": "https://example.com/job", "title": "Job"}, None)
+        self.assertEqual("experiment", capture.call_args.kwargs["application_status"])
 
     def test_manual_job_requires_description_and_valid_web_url(self) -> None:
         with self.assertRaises(HTTPException) as missing:

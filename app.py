@@ -29,9 +29,13 @@ from description_format import format_description
 from report_data import read_job
 
 API_TOKEN = os.getenv("API_TOKEN")
+EXPERIMENT_CAPTURE = os.getenv("EXPERIMENT_CAPTURE", "").strip().lower() in {
+    "1", "true", "yes", "on",
+}
 ALLOWED_STATUSES = {
     "new", "interested", "applied", "recruiter_contact", "interview",
     "final_round", "offer", "rejected", "withdrawn", "skipped", "archived",
+    "experiment",
 }
 
 @asynccontextmanager
@@ -81,7 +85,10 @@ def verify_api_token(authorization: str | None = Header(default=None)) -> None:
 @app.post("/jobs/capture")
 def capture_job(payload: dict[str, Any], _: None = Depends(verify_api_token)) -> JSONResponse:
     job_uid = build_job_uid(payload)
-    existing_state, queue_id = capture_job_record(job_uid, payload)
+    capture_status = "experiment" if EXPERIMENT_CAPTURE else "new"
+    existing_state, queue_id = capture_job_record(
+        job_uid, payload, application_status=capture_status
+    )
     if existing_state:
         messages = {
             "queued": "Job is already queued.",
@@ -130,7 +137,10 @@ def add_manual_job(
         "application_url": application_url,
         "url": application_url,
     }
-    _, queue_id = capture_job_record(job_uid, raw)
+    capture_status = "experiment" if EXPERIMENT_CAPTURE else "new"
+    _, queue_id = capture_job_record(
+        job_uid, raw, application_status=capture_status
+    )
     notes = str(payload.get("notes") or "").strip()
     if notes:
         update_notes_in_database(job_uid, notes)
@@ -221,6 +231,7 @@ def get_jobs(
     status: str = "new",
     sort: str = "newest",
     minimum_score: int | None = None,
+    show_filtered: bool = False,
     page: int = 1,
     page_size: int = 25,
 ) -> dict[str, Any]:
@@ -235,7 +246,7 @@ def get_jobs(
         raise HTTPException(status_code=400, detail="minimum_score must be 0-100")
     return list_job_summaries(
         search=search, status=status, sort=sort,
-        minimum_score=minimum_score, page=page, page_size=page_size,
+        minimum_score=minimum_score, page=page, page_size=page_size, show_filtered=show_filtered,
     )
 
 
@@ -291,7 +302,7 @@ def health() -> dict[str, str]:
 def retry_job(job_uid: str, _: None = Depends(verify_api_token)) -> JSONResponse:
     result = retry_failed_queue_item(job_uid)
     if result == "not_found":
-        raise HTTPException(status_code=404, detail=f"No failed queue item found for {job_uid}")
+        raise HTTPException(status_code=404, detail=f"No failed or filtered queue item found for {job_uid}")
     if result == "active":
         raise HTTPException(status_code=409, detail=f"Job {job_uid} is already active")
     return JSONResponse({

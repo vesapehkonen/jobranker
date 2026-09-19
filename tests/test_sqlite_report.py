@@ -66,6 +66,22 @@ class SQLiteReportTests(unittest.TestCase):
             self.assertEqual("$100k-$120k", result["items"][0]["salary_range"])
             self.assertNotIn("search_text", result["items"][0])
 
+            uid_result = list_job_summaries(
+                search="JOB-B",
+                status="all",
+                database_file=database_file,
+            )
+            self.assertEqual(1, uid_result["total_items"])
+            self.assertEqual("job-b", uid_result["items"][0]["job_uid"])
+
+            partial_uid_result = list_job_summaries(
+                search="ob-c",
+                status="all",
+                database_file=database_file,
+            )
+            self.assertEqual(1, partial_uid_result["total_items"])
+            self.assertEqual("job-c", partial_uid_result["items"][0]["job_uid"])
+
     def test_pending_and_completed_jobs_are_built_from_sqlite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_file = Path(directory) / "jobranker.db"

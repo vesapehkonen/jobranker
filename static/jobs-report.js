@@ -15,6 +15,7 @@ const jobState = {
     status: !savedStatus || savedStatus === "active" ? "new" : savedStatus,
     sort: localStorage.getItem("jobReportSort") || "newest",
     minimumScore: localStorage.getItem("jobReportMinimumScore") || "",
+    showFiltered: localStorage.getItem("jobReportShowFiltered") === "true",
     pageSize: Number(localStorage.getItem("jobReportPageSize") || 25),
     page: 1,
     totalPages: 0,
@@ -79,8 +80,22 @@ function authHeaders() {
     return { "Authorization": `Bearer ${API_TOKEN}` };
 }
 
+function aiCostLabel(usage) {
+    if (!usage?.call_count) return "AI usage: no recorded calls";
+    if (usage.estimated_cost_usd != null) return `Estimated AI cost: $${Number(usage.estimated_cost_usd).toFixed(4)}`;
+    return `AI usage: ${Number(usage.total_tokens).toLocaleString()} tokens (pricing unavailable${usage.unpriced_calls < usage.call_count ? " for some calls" : ""})`;
+}
+
+function aiUsageHtml(usage) {
+    if (!usage?.call_count) return "<p>No recorded AI calls for this job.</p>";
+    return `<p>${escapeHtml(aiCostLabel(usage))} · ${escapeHtml(usage.total_tokens)} tokens · ${escapeHtml(usage.call_count)} calls, including retries.</p>
+        ${usage.unpriced_calls ? `<p>Known estimated cost: $${escapeHtml(Number(usage.known_cost_usd).toFixed(4))}; ${escapeHtml(usage.unpriced_calls)} unpriced calls.</p>` : ""}
+        <ul>${usage.calls.map(call => `<li>${escapeHtml(call.operation)} · ${escapeHtml(call.model)} · ${escapeHtml(call.total_tokens)} tokens · ${call.total_cost_usd == null ? "price unavailable" : "$" + escapeHtml(Number(call.total_cost_usd).toFixed(4))}</li>`).join("")}</ul>`;
+}
+
 function processingBadge(job) {
     const status = job.processing_status || "";
+    if (status === "done" && ["filtered_out", "base_filtered"].includes(job.processing_phase)) return '<span class="processing processing-pending">Filtered out</span>';
     if (!status || status === "done") return "";
     const css = status === "failed" ? "failed" :
         status === "processing" ? "active" :
@@ -95,6 +110,7 @@ function statusOptions(current) {
         ["recruiter_contact", "Recruiter"], ["interview", "Interview"],
         ["final_round", "Final round"], ["offer", "Offer"], ["skipped", "Skipped"],
         ["rejected", "Rejected"], ["withdrawn", "Withdrawn"], ["archived", "Archived"],
+        ["experiment", "Experiment"],
     ];
     return options.map(([value, label]) =>
         `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`
@@ -149,12 +165,12 @@ function emptyStateCopy() {
     if (jobState.status === "new") {
         return [
             "No new jobs to review",
-            "Newly captured jobs will appear here after they enter the processing queue.",
+            "Newly captured jobs will appear here. Enable Show filtered jobs to include filtered captures.",
         ];
     }
     return [
         "No jobs in this status",
-        "Choose another status or select All to review every captured job.",
+        "Choose another status or enable Show filtered jobs to include filtered captures.",
     ];
 }
 
@@ -205,7 +221,7 @@ function renderJobs(data) {
             <td>${escapeHtml(job.main_skill || "")}</td>
             <td><div class="actions">
                 <button id="details-button-${uid}" type="button" onclick="openJobDetails('${uid}', this)">Details</button>
-                ${job.processing_status === "failed" ? `<button type="button" onclick="retryJob('${uid}')">Retry</button>` : ""}
+                ${job.processing_status === "failed" || ["filtered_out", "base_filtered"].includes(job.processing_phase) ? `<button type="button" onclick="retryJob('${uid}')">${["filtered_out", "base_filtered"].includes(job.processing_phase) ? "Recheck" : "Retry"}</button>` : ""}
                 <select onchange="changeStatus('${uid}', this)">${statusOptions(job.status)}</select>
             </div></td>`;
         body.appendChild(row);
@@ -227,6 +243,7 @@ async function loadJobs() {
         search: jobState.search, status: jobState.status, sort: jobState.sort,
         page: jobState.page, page_size: jobState.pageSize,
     });
+    params.set("show_filtered", String(jobState.showFiltered));
     if (jobState.minimumScore) params.set("minimum_score", jobState.minimumScore);
     let response;
     try {
@@ -388,6 +405,7 @@ async function openJobDetails(jobUid, trigger = null) {
                 <div>
                     <div class="fit-overview-label">${escapeHtml(recommendationLabel(job.score) || "Not ranked")}</div>
                     ${job.recommended_profile ? `<span class="resume-pill">${escapeHtml(job.recommended_profile)}</span>` : ""}
+                    <p class="muted ai-cost">${escapeHtml(aiCostLabel(job.ai_usage))}</p>
                 </div>
             </div>
             <div class="posting-links">
@@ -397,7 +415,9 @@ async function openJobDetails(jobUid, trigger = null) {
             </div>
         </div>
         <div class="details-grid">
-            ${job.processing_error ? `<section class="detail-section full"><h3>Processing Error</h3><pre class="error-box">${escapeHtml(job.processing_error)}</pre></section>` : ""}
+            <section class="detail-section full"><h3>Summary</h3><p>${escapeHtml(job.summary || job.short_summary || "No summary available.")}</p></section>
+            ${job.processing_status === "done" && ["filtered_out", "base_filtered"].includes(job.processing_phase) ? `<p class="detail-section full">${escapeHtml(job.processing_phase === "base_filtered" ? job.base_rank?.reason : (job.local_filter?.reasons || []).map(reason => reason.message).join(" "))}</p>` : ""}
+            ${job.processing_status === "failed" ? '<p class="detail-section full">Processing failed. See Processing details below, then retry from the job list.</p>' : ""}
             <section class="detail-section full"><h3>Notes</h3>
                 <div class="notes-editor">
                     <textarea aria-label="Notes for ${escapeHtml(job.title || "job")}">${escapeHtml(job.notes || "")}</textarea>
@@ -424,16 +444,29 @@ async function openJobDetails(jobUid, trigger = null) {
                 ${job.recruiter_name ? `<div class="info-label">Recruiter</div><div>${escapeHtml(job.recruiter_name)}</div>` : ""}
                 ${job.recruiter_email ? `<div class="info-label">Recruiter email</div><div>${escapeHtml(job.recruiter_email)}</div>` : ""}
                 <div class="info-label">Job ID</div><div>${escapeHtml(job.external_job_id || "")}</div>
-                <div class="info-label">Internal UID</div><div>${escapeHtml(job.job_uid)}</div>
                 <div class="info-label">Workplace</div><div>${escapeHtml(job.workplace_type || "")}</div>
                 <div class="info-label">Employment</div><div>${escapeHtml(job.employment_type || "")}</div>
                 <div class="info-label">Education</div><div>${escapeHtml(job.education_requirement || "")}</div>
                 <div class="info-label">Salary</div><div>${escapeHtml(job.salary_range || "")}</div>
                 <div class="info-label">Created</div><div class="local-time" data-time="${escapeHtml(job.created_at_raw || "")}"></div>
             </div></section>
-            <section class="detail-section full"><h3>Summary</h3><p>${escapeHtml(job.summary || job.short_summary || "No summary available.")}</p></section>
             <section class="detail-section full"><h3>Ranking reasoning</h3><p>${escapeHtml(job.reasoning || "No ranking reasoning available.")}</p></section>
             ${job.description ? `<section class="detail-section full"><h3>Description</h3><p>${escapeHtml(job.description)}</p></section>` : ""}
+            <details class="detail-section full processing-details"><summary>Processing details</summary>
+                <p class="muted">Job reference: ${escapeHtml(job.job_uid)}</p>
+                <h3>AI usage</h3>${aiUsageHtml(job.ai_usage)}
+            ${job.base_rank?.outcome ? `<section class="detail-section full"><h3>Base profile ranking: ${escapeHtml(job.base_rank.score)} / 100</h3>
+                <p>${escapeHtml(job.base_rank.reason)}</p><p>${escapeHtml(job.base_rank.ranking?.reasoning || "")}</p>
+                <p>${escapeHtml(job.base_rank_at || "")}</p>
+                <details><summary>Base ranking details</summary><pre>${escapeHtml(JSON.stringify(job.base_rank, null, 2))}</pre></details>
+            </section>` : ""}
+            ${job.local_filter?.outcome ? `<section class="detail-section full"><h3>Local filtering: ${escapeHtml(job.local_filter.outcome === "filtered_out" ? "Filtered out" : "Passed")}</h3>
+                <p>${escapeHtml(job.local_filter_at || "")}</p>
+                <ul>${(job.local_filter.reasons || []).map(reason => `<li>${escapeHtml(reason.message)}</li>`).join("")}</ul>
+                <details><summary>Extraction and comparison details</summary><pre>${escapeHtml(JSON.stringify(job.local_filter, null, 2))}</pre></details>
+            </section>` : ""}
+            ${job.processing_error ? `<section class="detail-section full"><h3>Processing Error</h3><pre class="error-box">${escapeHtml(job.processing_error)}</pre></section>` : ""}
+            </details>
             <section class="detail-section full danger-zone">
                 <div><h3>Delete job</h3><p>Permanently remove this job and all of its saved data.</p></div>
                 <button class="danger-button" type="button" onclick="deleteJob('${escapeHtml(job.job_uid)}', this)">Delete job</button>
@@ -656,6 +689,13 @@ document.addEventListener("visibilitychange", () => {
     }
 });
 
+document.getElementById("show-filtered").checked = jobState.showFiltered;
+document.getElementById("show-filtered").addEventListener("change", event => {
+    jobState.showFiltered = event.target.checked;
+    jobState.page = 1;
+    localStorage.setItem("jobReportShowFiltered", String(jobState.showFiltered));
+    loadJobs();
+});
 document.getElementById("job-search").value = jobState.search;
 document.getElementById("sort-order").value = jobState.sort;
 document.getElementById("score-filter").value = jobState.minimumScore;

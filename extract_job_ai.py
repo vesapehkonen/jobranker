@@ -5,7 +5,7 @@ from openai import OpenAI
 
 from config import JOB_EXTRACT_MODEL
 from ai_costs import track_openai_response
-from database import initialize_database
+from database import DEFAULT_DATABASE_FILE, initialize_database
 
 DEFAULT_PROMPT_FILE = Path(__file__).with_name("job_extract_prompt.txt")
 
@@ -171,6 +171,7 @@ def extract_job(
     system_prompt: str,
     *,
     job_uid: str | None = None,
+    database_file: Path | str = DEFAULT_DATABASE_FILE,
 ) -> dict:
     response = client.responses.create(
         model=JOB_EXTRACT_MODEL,
@@ -194,7 +195,7 @@ def extract_job(
         },
     )
     if getattr(response, "usage", None) is not None:
-        track_openai_response(response, "job_extract", job_uid=job_uid)
+        track_openai_response(response, "job_extract", job_uid=job_uid, database_file=database_file)
 
     return json.loads(response.output_text)
 

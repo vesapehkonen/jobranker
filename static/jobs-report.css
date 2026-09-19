@@ -483,6 +483,7 @@ th:nth-child(6), td:nth-child(6) { width: 190px; }
 }
 
 .status-new { background: var(--blue-soft); color: var(--blue-text); }
+.status-experiment { background: var(--purple-soft); color: var(--purple-text); }
 .status-interested { background: var(--green-soft); color: var(--green-text); }
 .status-applied { background: var(--amber-soft); color: var(--amber-text); }
 
@@ -899,3 +900,9 @@ body.drawer-open {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+.filtered-toggle { display: flex; align-items: center; gap: 0.5rem; margin: 0.75rem 0; cursor: pointer; }
+.filtered-toggle input { width: auto; margin: 0; }
+.processing-details > summary { cursor: pointer; font-weight: 600; }
+.processing-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; }
+.ai-cost { margin: 0.4rem 0 0; font-size: 0.8rem; }

@@ -21,7 +21,7 @@ class DatabaseTests(unittest.TestCase):
                     )
                 )
 
-            self.assertEqual(3, sum(len(result) for result in results))
+            self.assertEqual(6, sum(len(result) for result in results))
             with connect(database_file) as db:
                 versions = db.execute(
                     "SELECT version FROM schema_migrations ORDER BY version"
@@ -31,6 +31,9 @@ class DatabaseTests(unittest.TestCase):
                     "001_initial.sql",
                     "002_allow_duplicate_source_ids.sql",
                     "003_ai_costs.sql",
+                    "004_base_profile.sql",
+                    "005_local_filter.sql",
+                    "006_base_ranking.sql",
                 ],
                 [row["version"] for row in versions],
             )
@@ -44,6 +47,9 @@ class DatabaseTests(unittest.TestCase):
                     "001_initial.sql",
                     "002_allow_duplicate_source_ids.sql",
                     "003_ai_costs.sql",
+                    "004_base_profile.sql",
+                    "005_local_filter.sql",
+                    "006_base_ranking.sql",
                 ],
                 apply_migrations(database_file),
             )

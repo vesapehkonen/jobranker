@@ -5,7 +5,7 @@ from openai import OpenAI
 
 from config import RESUME_EXTRACT_MODEL
 from ai_costs import track_openai_response
-from database import initialize_database, save_profile
+from database import DEFAULT_DATABASE_FILE, initialize_database, save_profile
 
 SCHEMA = {
     "type": "object",
@@ -88,6 +88,7 @@ def extract_resume(
     resume_text: str,
     *,
     profile_name: str | None = None,
+    database_file: Path | str = DEFAULT_DATABASE_FILE,
 ) -> dict:
     response = client.responses.create(
         model=RESUME_EXTRACT_MODEL,
@@ -114,9 +115,28 @@ def extract_resume(
     )
     if getattr(response, "usage", None) is not None:
         track_openai_response(
-            response, "resume_extract", profile_name=profile_name
+            response, "resume_extract", profile_name=profile_name,
+            database_file=database_file,
         )
     return json.loads(response.output_text)
+
+
+def extract_and_save_resume(client, profile_name, resume_text, *, database_file=DEFAULT_DATABASE_FILE):
+    from merge_resume_profiles import refresh_base_profile
+
+    initialize_database(database_file)
+    profile = extract_resume(
+        client, resume_text, profile_name=profile_name, database_file=database_file
+    )
+    saved = save_profile(profile_name, resume_text, profile, database_file=database_file)
+    try:
+        refresh_base_profile(client, database_file=database_file)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Resume profile {profile_name!r} was saved, but the base profile refresh failed. "
+            "The base is stale. Retry with merge_resume_profiles.py."
+        ) from exc
+    return saved
 
 
 def main() -> None:
@@ -132,12 +152,14 @@ def main() -> None:
         raise SystemExit(1)
 
     resume_text = input_file.read_text(encoding="utf-8")
-    profile = extract_resume(
-        OpenAI(), resume_text, profile_name=profile_name
-    )
-    saved = save_profile(profile_name, resume_text, profile)
+    try:
+        saved = extract_and_save_resume(OpenAI(), profile_name, resume_text)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from exc
     print(f"Saved profile {saved['profile_name']} to SQLite")
     print(f"Profile hash: {saved['profile_hash']}")
+    print("Base profile is up to date")
 
 
 if __name__ == "__main__":

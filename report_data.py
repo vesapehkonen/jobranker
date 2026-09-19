@@ -42,6 +42,19 @@ def format_timestamp(value: str | None) -> str:
         return value
 
 
+def summarize_ai_usage(calls):
+    known_cost = sum(call["total_cost_usd"] or 0 for call in calls)
+    unknown = sum(call["total_cost_usd"] is None for call in calls)
+    return {
+        "calls": calls, "call_count": len(calls),
+        "total_tokens": sum(call["total_tokens"] for call in calls),
+        "input_tokens": sum(call["input_tokens"] for call in calls),
+        "output_tokens": sum(call["output_tokens"] for call in calls),
+        "known_cost_usd": known_cost, "unpriced_calls": unknown,
+        "estimated_cost_usd": known_cost if calls and not unknown else None,
+    }
+
+
 def read_ranked_jobs(job_uid: str | None = None) -> list[dict]:
     where = "WHERE j.job_uid = ?" if job_uid is not None else ""
     parameters = (job_uid,) if job_uid is not None else ()
@@ -53,9 +66,17 @@ def read_ranked_jobs(job_uid: str | None = None) -> list[dict]:
                 a.raw_json, a.cleaned_json, a.structured_json, a.ranked_json,
                 q.status AS processing_status,
                 q.phase AS processing_phase,
-                q.error AS processing_error
+                q.error AS processing_error,
+                f.evaluation_json AS local_filter_json, f.created_at AS local_filter_at,
+                b.evaluation_json AS base_rank_json, b.created_at AS base_rank_at
             FROM jobs AS j
             LEFT JOIN job_artifacts AS a ON a.job_uid = j.job_uid
+            LEFT JOIN base_rank_evaluations AS b ON b.id = (
+                SELECT MAX(b2.id) FROM base_rank_evaluations b2 WHERE b2.job_uid=j.job_uid
+            )
+            LEFT JOIN local_filter_evaluations AS f ON f.id = (
+                SELECT MAX(f2.id) FROM local_filter_evaluations f2 WHERE f2.job_uid=j.job_uid
+            )
             LEFT JOIN queue_items AS q ON q.id = (
                 SELECT q2.id FROM queue_items AS q2
                 WHERE q2.job_uid = j.job_uid
@@ -65,6 +86,16 @@ def read_ranked_jobs(job_uid: str | None = None) -> list[dict]:
             """,
             parameters,
         ).fetchall()
+        costs = db.execute(
+            """SELECT job_uid, operation, model, profile_name, input_tokens,
+                      cached_input_tokens, output_tokens, total_tokens, total_cost_usd, created_at
+               FROM ai_costs WHERE job_uid IS NOT NULL"""
+            + (" AND job_uid = ?" if job_uid is not None else "")
+            + " ORDER BY created_at, id", parameters,
+        ).fetchall()
+    costs_by_job = {}
+    for cost in costs:
+        costs_by_job.setdefault(cost["job_uid"], []).append(dict(cost))
 
     jobs = []
     for row in rows:
@@ -95,6 +126,7 @@ def read_ranked_jobs(job_uid: str | None = None) -> list[dict]:
 
         jobs.append({
             "job_uid": row["job_uid"],
+            "ai_usage": summarize_ai_usage(costs_by_job.get(row["job_uid"], [])),
             "file": f"{row['job_uid']}.ranked.json" if row["ranked_json"] else "",
             "status": row["application_status"],
             "notes": row["notes"],
@@ -141,6 +173,10 @@ def read_ranked_jobs(job_uid: str | None = None) -> list[dict]:
             "processing_status": row["processing_status"] or "",
             "processing_phase": row["processing_phase"] or "",
             "processing_error": row["processing_error"] or "",
+            "local_filter": decode_json(row["local_filter_json"]),
+            "local_filter_at": row["local_filter_at"],
+            "base_rank": decode_json(row["base_rank_json"]),
+            "base_rank_at": row["base_rank_at"],
             "status_updated_at_raw": status_updated_at,
             "created_at_raw": created_at,
         })

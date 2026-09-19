@@ -1,5 +1,11 @@
 # Deterministic Python extraction experiment
 
+The reusable extractors and comparison logic live in `job_matching/`. The
+experiment modules re-export those functions so experiment commands and the
+production local filter use the same implementation. Production filtering applies
+its own documented rejection rules; experiment comparisons retain their existing
+reporting behavior.
+
 This phase extracts technologies, engineering capabilities, education
 requirements, and minimum experience years using Python only. It does not load
 or call an LLM, embedding model, Ollama, or `sentence-transformers`.

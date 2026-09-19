@@ -321,6 +321,7 @@ def capture_job_record(
     job_uid: str,
     payload: dict[str, Any],
     *,
+    application_status: str = "new",
     database_file: Path | str = DEFAULT_DATABASE_FILE,
 ) -> tuple[str | None, int | None]:
     """Atomically insert a job, its raw artifact, and a pending queue row."""
@@ -340,11 +341,11 @@ def capture_job_record(
             INSERT INTO jobs (
                 job_uid, original_url, page_title, source, application_status,
                 notes, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 'new', '', ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, '', ?, ?)
             """,
             (
                 job_uid, payload.get("url"), payload.get("title"),
-                payload.get("source"), now, now,
+                payload.get("source"), application_status, now, now,
             ),
         )
         db.execute(
@@ -610,6 +611,7 @@ def list_job_summaries(
     status: str = "new",
     sort: str = "newest",
     minimum_score: int | None = None,
+    show_filtered: bool = False,
     page: int = 1,
     page_size: int = 25,
     database_file: Path | str = DEFAULT_DATABASE_FILE,
@@ -618,6 +620,8 @@ def list_job_summaries(
     page_size = min(100, max(1, page_size))
     filters: list[str] = []
     parameters: list[Any] = []
+    if not show_filtered:
+        filters.append("NOT (COALESCE(processing_status, '') = 'done' AND COALESCE(processing_phase, '') IN ('filtered_out', 'base_filtered'))")
     if status != "all":
         filters.append("application_status = ?")
         parameters.append(status)
@@ -661,10 +665,19 @@ def list_job_summaries(
                json_extract(a.ranked_json,'$.recommended_profile') AS recommended_profile,
                q.status AS processing_status, q.phase AS processing_phase,
                q.error AS processing_error,
-               LOWER(COALESCE(j.page_title,'') || ' ' || COALESCE(j.notes,'') || ' ' ||
+               f.outcome AS local_filter_outcome,
+               b.outcome AS base_rank_outcome,
+               json_extract(b.evaluation_json, '$.score') AS base_score,
+               LOWER(COALESCE(j.job_uid,'') || ' ' || COALESCE(j.page_title,'') || ' ' || COALESCE(j.notes,'') || ' ' ||
                      COALESCE(a.structured_json,'') || ' ' || COALESCE(a.ranked_json,'')) AS search_text
         FROM jobs j
         LEFT JOIN job_artifacts a ON a.job_uid=j.job_uid
+        LEFT JOIN base_rank_evaluations b ON b.id=(
+            SELECT MAX(b2.id) FROM base_rank_evaluations b2 WHERE b2.job_uid=j.job_uid
+        )
+        LEFT JOIN local_filter_evaluations f ON f.id=(
+            SELECT MAX(f2.id) FROM local_filter_evaluations f2 WHERE f2.job_uid=j.job_uid
+        )
         LEFT JOIN queue_items q ON q.id=(
             SELECT q2.id FROM queue_items q2 WHERE q2.job_uid=j.job_uid
             ORDER BY q2.id DESC LIMIT 1
@@ -738,7 +751,7 @@ def retry_failed_queue_item(
             db.commit()
             return "active"
         failed = db.execute(
-            "SELECT id FROM queue_items WHERE job_uid = ? AND status = 'failed' ORDER BY id DESC LIMIT 1",
+            "SELECT id FROM queue_items WHERE job_uid = ? AND (status = 'failed' OR (status = 'done' AND phase IN ('filtered_out', 'base_filtered'))) ORDER BY id DESC LIMIT 1",
             (job_uid,),
         ).fetchone()
         if not failed:
@@ -810,3 +823,29 @@ def list_profiles(
             """
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def save_local_filter_evaluation(job_uid, queue_id, evaluation, *, database_file=DEFAULT_DATABASE_FILE):
+    """Record a decision and finish filtered jobs atomically."""
+    now = utc_now()
+    with connect(database_file) as db:
+        db.execute("BEGIN IMMEDIATE")
+        base = db.execute("SELECT * FROM base_profile WHERE id = 1").fetchone()
+        if (not base or base["status"] != "ready"
+                or json.loads(base["sources_json"]) != evaluation["base_sources"]
+                or base["merged_at"] != evaluation["base_merged_at"]):
+            raise RuntimeError("Base profile changed during local filtering; retry the job")
+        queue = db.execute("SELECT job_uid, status FROM queue_items WHERE id = ?", (queue_id,)).fetchone()
+        if not queue or queue["job_uid"] != job_uid or queue["status"] != "processing":
+            raise RuntimeError(f"Queue item {queue_id} is not processing this job")
+        db.execute(
+            """INSERT INTO local_filter_evaluations
+            (job_uid, queue_id, outcome, evaluation_json, created_at) VALUES (?, ?, ?, ?, ?)""",
+            (job_uid, queue_id, evaluation["outcome"], json.dumps(evaluation, ensure_ascii=False), now),
+        )
+        if evaluation["outcome"] == "filtered_out":
+            db.execute(
+                """UPDATE queue_items SET status = 'done', phase = 'filtered_out',
+                finished_at = ?, lease_expires_at = NULL, updated_at = ? WHERE id = ?""",
+                (now, now, queue_id),
+            )
